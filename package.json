@@ -1,0 +1,26 @@
+{
+  "name": "greenside-classic",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A browser golf game in the spirit of the classic 3-click-swing PC golf sims of the early 2000s.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/three": "0.180.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "5.0.4"
+  }
+}
