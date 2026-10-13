@@ -30,5 +30,6 @@ if (params.has('test')) {
     swing: (power: number, accuracy = 0) => game.testSwing(power, accuracy),
     fastForward: () => game.testFastForward(),
     primary: () => game.primary(),
+    pose: (p: number) => game.testPose(p),
   };
 }

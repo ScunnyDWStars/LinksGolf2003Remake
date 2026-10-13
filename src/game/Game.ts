@@ -389,6 +389,7 @@ export class Game {
 
   private placeGolfer(): void {
     const t = this.terrain!;
+    this.golfer.setClub(this.club.isPutter ? 'putter' : this.club.isWood ? 'wood' : 'iron');
     this.golfer.placeAt(this.ballPos, dirFromYaw(this.aimYaw), (x, z) => t.heightAt(x, z), this.club.isPutter === true);
   }
 
@@ -932,6 +933,11 @@ export class Game {
     if (this.phase === 'flyover') this.prepareShot(true);
     if (this.phase !== 'aiming') return;
     this.hit({ power, accuracy });
+  }
+
+  /** Automation hook: freeze the golfer in a swing pose (for screenshots). */
+  testPose(pos: number): void {
+    this.golfer.setSwing(pos);
   }
 
   /** Automation hook: jump to the end of the current shot and any settle delay. */

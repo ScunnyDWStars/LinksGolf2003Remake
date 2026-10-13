@@ -5,7 +5,7 @@ const state = (page: Page) => page.evaluate(() => ({ ...document.body.dataset })
 
 declare global {
   interface Window {
-    __golf: { swing(power: number, accuracy?: number): void; fastForward(): void; primary(): void };
+    __golf: { swing(power: number, accuracy?: number): void; fastForward(): void; primary(): void; pose(p: number): void };
   }
 }
 
