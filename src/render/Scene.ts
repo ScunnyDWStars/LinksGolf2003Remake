@@ -52,6 +52,8 @@ export class GameScene {
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    // Keep a sensible horizontal view on tall (portrait) screens.
+    this.camera.fov = w < h ? Math.min(75, 50 / Math.max(0.55, w / h) * 0.75) : 50;
     this.camera.updateProjectionMatrix();
   }
 

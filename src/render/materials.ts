@@ -37,7 +37,7 @@ export function makeDetailTexture(size = 256, seed = 1): THREE.CanvasTexture {
 export const waterUniforms = { uTime: { value: 0 } };
 
 /** Animated water with a fresnel sky reflection and moving glints. */
-export function makeWaterMaterial(deep = new THREE.Color('#1f4f5c'), shallow = new THREE.Color('#3f8a8c')): THREE.ShaderMaterial {
+export function makeWaterMaterial(deep = new THREE.Color('#1a4552'), shallow = new THREE.Color('#2f7680')): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
     uniforms: {
@@ -79,7 +79,7 @@ export function makeWaterMaterial(deep = new THREE.Color('#1f4f5c'), shallow = n
         vec3 viewDir = normalize(cameraPosition - vWorld);
         float fres = pow(1.0 - clamp(viewDir.y, 0.0, 1.0), 3.0);
         vec3 col = mix(uDeep, uShallow, n * 0.6);
-        col = mix(col, uSky, clamp(fres * 0.85 + 0.05, 0.0, 0.9));
+        col = mix(col, uSky, clamp(fres * 0.55 + 0.04, 0.0, 0.6));
         float glint = smoothstep(0.82, 0.97, n) * 0.35;
         col += vec3(glint);
         gl_FragColor = vec4(col, 0.93);

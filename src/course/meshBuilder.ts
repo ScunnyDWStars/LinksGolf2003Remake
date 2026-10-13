@@ -11,7 +11,7 @@ const BASE: Record<SurfaceType, THREE.Color> = {
   fairway: new THREE.Color('#62a23c'),
   fringe: new THREE.Color('#5aa63c'),
   green: new THREE.Color('#6cc04a'),
-  rough: new THREE.Color('#4e7f2d'),
+  rough: new THREE.Color('#41702a'),
   deepRough: new THREE.Color('#9a9452'),
   sand: new THREE.Color('#e6d5a6'),
   water: new THREE.Color('#41594a'),
@@ -69,7 +69,7 @@ function colorFor(t: HoleTerrain, x: number, z: number, out: THREE.Color): THREE
     case 'tee': {
       // Mowing stripes across the line of play.
       const s = t.progress(x, z);
-      const stripe = Math.floor(s / 9) % 2 === 0 ? 1.07 : 0.93;
+      const stripe = Math.floor(s / 9) % 2 === 0 ? 1.06 : 0.95;
       out.multiplyScalar(stripe * (1 + n * 0.04));
       break;
     }
