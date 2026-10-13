@@ -13,13 +13,13 @@ export class Golfer {
   private putting = false;
 
   constructor() {
-    const shirt = new THREE.MeshLambertMaterial({ color: '#e9c22c' });
-    const trousers = new THREE.MeshLambertMaterial({ color: '#2f3640' });
-    const skin = new THREE.MeshLambertMaterial({ color: '#d9a47e' });
-    const white = new THREE.MeshLambertMaterial({ color: '#f2f2f2' });
-    const shoe = new THREE.MeshLambertMaterial({ color: '#3a2a20' });
-    const steel = new THREE.MeshLambertMaterial({ color: '#c8ccd2' });
-    const grip = new THREE.MeshLambertMaterial({ color: '#222' });
+    const shirt = new THREE.MeshStandardMaterial({ color: '#e9c22c' });
+    const trousers = new THREE.MeshStandardMaterial({ color: '#2f3640' });
+    const skin = new THREE.MeshStandardMaterial({ color: '#d9a47e' });
+    const white = new THREE.MeshStandardMaterial({ color: '#f2f2f2' });
+    const shoe = new THREE.MeshStandardMaterial({ color: '#3a2a20' });
+    const steel = new THREE.MeshStandardMaterial({ color: '#c8ccd2' });
+    const grip = new THREE.MeshStandardMaterial({ color: '#222' });
 
     const add = (parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
       const m = new THREE.Mesh(geo, mat);

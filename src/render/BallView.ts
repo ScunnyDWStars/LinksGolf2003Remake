@@ -14,7 +14,7 @@ export class BallView {
   constructor(scene: THREE.Scene) {
     this.ball = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_RADIUS, 16, 12),
-      new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#555555' }),
+      new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#555555' }),
     );
     this.ball.castShadow = true;
     scene.add(this.ball);

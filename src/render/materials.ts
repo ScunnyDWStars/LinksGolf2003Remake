@@ -45,9 +45,7 @@ export function makeWaterMaterial(deep = new THREE.Color('#1a4552'), shallow = n
       uDeep: { value: deep },
       uShallow: { value: shallow },
       uSky: { value: new THREE.Color('#bcd6ea') },
-      fogColor: { value: new THREE.Color() },
-      fogNear: { value: 0 },
-      fogFar: { value: 1 },
+      ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
     },
     fog: true,
     vertexShader: /* glsl */ `
@@ -89,10 +87,14 @@ export function makeWaterMaterial(deep = new THREE.Color('#1a4552'), shallow = n
   });
 }
 
-/** Gradient sky dome with a sun glow and soft drifting clouds. */
-export function makeSkyMaterial(sunDir: THREE.Vector3): THREE.ShaderMaterial {
+/**
+ * Soft drifting clouds, drawn as a transparent dome over the physical sky. Lit from the sun side so they
+ * keep some shape.
+ */
+export function makeCloudMaterial(sunDir: THREE.Vector3): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     side: THREE.BackSide,
+    transparent: true,
     depthWrite: false,
     uniforms: {
       uSunDir: { value: sunDir.clone().normalize() },
@@ -115,23 +117,20 @@ export function makeSkyMaterial(sunDir: THREE.Vector3): THREE.ShaderMaterial {
         vec2 u = f * f * (3.0 - 2.0 * f);
         return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
       }
-      float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; } return s; }
+      float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 6; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; } return s; }
       void main() {
         vec3 d = normalize(vDir);
-        float h = clamp(d.y, -0.2, 1.0);
-        vec3 horizon = vec3(0.80, 0.87, 0.92);
-        vec3 zenith = vec3(0.27, 0.50, 0.82);
-        vec3 col = mix(horizon, zenith, pow(max(h, 0.0), 0.55));
-        if (h < 0.0) col = mix(horizon, vec3(0.62, 0.68, 0.66), clamp(-h * 5.0, 0.0, 1.0));
-        float sd = max(dot(d, normalize(uSunDir)), 0.0);
-        col += vec3(1.0, 0.92, 0.75) * (pow(sd, 600.0) * 3.0 + pow(sd, 12.0) * 0.25);
-        if (h > 0.02) {
-          vec2 cp = d.xz / (d.y + 0.15) * 1.6 + vec2(uTime * 0.01, 0.0);
-          float c = smoothstep(0.5, 0.8, fbm(cp));
-          col = mix(col, vec3(1.0), c * 0.75 * smoothstep(0.02, 0.25, h));
-        }
-        // Colours above are authored in display (sRGB) space, so no conversion here.
-        gl_FragColor = vec4(col, 1.0);
+        if (d.y < 0.01) discard;
+        vec2 cp = d.xz / (d.y + 0.12) * 1.4 + vec2(uTime * 0.008, uTime * 0.002);
+        float c = fbm(cp);
+        float density = smoothstep(0.48, 0.78, c) * smoothstep(0.01, 0.22, d.y);
+        // Thicker cloud is darker underneath; the side facing the sun is brighter.
+        float sunSide = pow(max(dot(d, normalize(uSunDir)), 0.0), 3.0);
+        float shade = mix(0.78, 1.15, smoothstep(0.5, 0.9, c)) + sunSide * 0.5;
+        vec3 col = vec3(1.0, 0.985, 0.96) * shade * 1.6;
+        gl_FragColor = vec4(col, density * 0.85);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
   });
 }

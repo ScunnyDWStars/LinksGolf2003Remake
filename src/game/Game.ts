@@ -12,6 +12,7 @@ import { BallView } from '../render/BallView';
 import { CameraDirector } from '../render/Cameras';
 import { Golfer } from '../render/Golfer';
 import { PuttGrid } from '../render/PuttGrid';
+import { FrameGovernor, lowerLevel, presetFor, resolveLevel, type DeviceInfo } from '../render/Quality';
 import type { GameScene } from '../render/Scene';
 import { BAG, DRIVER_INDEX, PUTTER_INDEX, type Club } from '../swing/clubs';
 import { fullCarry } from '../swing/distances';
@@ -104,7 +105,16 @@ export class Game {
   /** Wall-clock time of the last meter advance, so clicks are judged at the exact moment they happen. */
   private meterClock = 0;
 
-  constructor(private readonly gs: GameScene) {
+  private readonly governor = new FrameGovernor();
+  private lastFrame = 0;
+
+  constructor(
+    private readonly gs: GameScene,
+    private readonly gfx: { device: DeviceInfo; gfxOverride: string | null } = {
+      device: { gpu: '', touch: false, width: 1920, height: 1080, cores: 4 },
+      gfxOverride: null,
+    },
+  ) {
     this.ui = document.getElementById('ui')!;
     this.hud = new Hud(this.ui);
     this.meterView = new SwingMeterView(this.hud.meterSlot);
@@ -160,6 +170,11 @@ export class Game {
     this.meter = new SwingMeter(DIFFICULTY[this.settings.difficulty]);
     this.sfx.setEnabled(this.settings.sound);
     if (this.cams) this.cams.flightStyle = this.settings.flightCam;
+    const level = resolveLevel(this.settings.graphics, this.gfx.gfxOverride, this.gfx.device);
+    if (level !== this.gs.quality.level) {
+      this.gs.applyQuality(presetFor(level));
+      this.gs.prepare(this.gs.scene);
+    }
     if (this.phase === 'aiming') this.refreshHud();
   }
 
@@ -203,6 +218,7 @@ export class Game {
     this.terrain = this.course!.makeHole(courseHole);
     this.meshes = buildHoleMeshes(this.terrain);
     this.gs.scene.add(this.meshes.group);
+    this.gs.prepare(this.gs.scene);
     this.grid = new PuttGrid(this.gs.scene, this.terrain);
     if (!this.cams) this.cams = new CameraDirector(this.gs.camera, this.terrain);
     else this.cams.setTerrain(this.terrain);
@@ -870,6 +886,18 @@ export class Game {
     const windYaw = Math.atan2(w.x, -w.z);
     const val = this.settings.units === 'yards' ? `${mph.toFixed(0)} mph` : `${(w.length()).toFixed(1)} m/s`;
     this.hud.setWind(windYaw - camYaw, mph < 0.5 ? '' : val, mph / 20);
+  }
+
+  /** Called after each rendered frame: steps graphics down if the device can't keep up. */
+  afterFrame(now: number): void {
+    const dt = this.lastFrame ? now - this.lastFrame : 16;
+    this.lastFrame = now;
+    if (this.gfx.gfxOverride || document.hidden) return;
+    if (this.gs.quality.level !== 'low' && this.governor.sample(dt)) {
+      this.gs.applyQuality(presetFor(lowerLevel(this.gs.quality.level)));
+      this.gs.prepare(this.gs.scene);
+      this.hud.showToast('Graphics reduced for smoothness', 'Change it any time under Options → Graphics', 2600);
+    }
   }
 
   /** Automation hook (only installed with ?test in the URL): hit a shot with an exact power/accuracy. */

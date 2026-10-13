@@ -2,6 +2,8 @@ export type SwingType = 'classic' | 'mouse';
 export type Difficulty = 'amateur' | 'pro' | 'champion';
 export type WindSetting = 'calm' | 'breezy' | 'windy';
 export type Units = 'yards' | 'meters';
+export type { GfxSetting } from '../render/Quality';
+import type { GfxSetting } from '../render/Quality';
 
 export interface Settings {
   playerName: string;
@@ -15,6 +17,7 @@ export interface Settings {
   flyovers: boolean;
   gimmes: boolean;
   sound: boolean;
+  graphics: GfxSetting;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   flyovers: true,
   gimmes: true,
   sound: true,
+  graphics: 'auto',
 };
 
 const KEY = 'greenside-classic.settings.v1';

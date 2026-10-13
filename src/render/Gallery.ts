@@ -47,9 +47,9 @@ export function buildGallery(t: PlayableHole): THREE.Group {
 
   const n = spots.length;
   if (!n) return g;
-  const legs = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.13, 0.86, 6).translate(0, 0.43, 0), new THREE.MeshLambertMaterial(), n);
-  const torso = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.17, 0.62, 7).translate(0, 1.17, 0), new THREE.MeshLambertMaterial(), n);
-  const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.115, 8, 6).translate(0, 1.6, 0), new THREE.MeshLambertMaterial(), n);
+  const legs = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.13, 0.86, 6).translate(0, 0.43, 0), new THREE.MeshStandardMaterial(), n);
+  const torso = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.17, 0.62, 7).translate(0, 1.17, 0), new THREE.MeshStandardMaterial(), n);
+  const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.115, 8, 6).translate(0, 1.6, 0), new THREE.MeshStandardMaterial(), n);
   const m = new THREE.Matrix4();
   const c = new THREE.Color();
   const pick = (arr: string[]) => arr[Math.floor(rng() * arr.length)];

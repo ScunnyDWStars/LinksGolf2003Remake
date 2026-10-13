@@ -50,6 +50,14 @@ export function buildSettingsForm(parent: HTMLElement, s: Settings, onChange: ()
   segmented(parent, 'Gimmes', s, 'gimmes', [on(true, 'Inside 2 ft'), on(false, 'Off')], onChange);
   segmented(parent, 'Units', s, 'units', [on('yards', 'Yards'), on('meters', 'Metres')], onChange);
   segmented(parent, 'Sound', s, 'sound', [on(true, 'On'), on(false, 'Off')], onChange);
+  segmented(
+    parent,
+    'Graphics',
+    s,
+    'graphics',
+    [on('auto', 'Auto'), on('low', 'Low'), on('medium', 'Med'), on('high', 'High'), on('ultra', 'Ultra')],
+    onChange,
+  );
 }
 
 export class MainMenu {

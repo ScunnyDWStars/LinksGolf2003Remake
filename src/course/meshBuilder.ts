@@ -180,7 +180,7 @@ function buildTerrainMesh(t: PlayableHole): THREE.Mesh {
   geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geo.setIndex(new THREE.BufferAttribute(index, 1));
   geo.computeVertexNormals();
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: detailTex });
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: detailTex });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';
@@ -246,7 +246,7 @@ function buildSurroundings(t: PlayableHole): THREE.Group {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
-  const land = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, map: detailTex }));
+  const land = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, map: detailTex }));
   land.receiveShadow = true;
   g.add(land);
 
@@ -372,7 +372,7 @@ function buildTrees(t: PlayableHole): THREE.Group {
     const trunkGeo = new THREE.CylinderGeometry(0.16, 0.3, 1, 6).translate(0, 0.5, 0);
     const near = broadleaf.filter((o) => !o.deep);
     const deep = broadleaf.filter((o) => o.deep);
-    const trunkMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+    const trunkMat = new THREE.MeshStandardMaterial({ color: '#ffffff' });
     const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, broadleaf.length);
     const col = new THREE.Color();
     broadleaf.forEach((o, i) => {
@@ -383,7 +383,7 @@ function buildTrees(t: PlayableHole): THREE.Group {
     });
     trunks.castShadow = true;
     g.add(trunks);
-    const canopyMat = new THREE.MeshLambertMaterial({ color: '#ffffff', vertexColors: true });
+    const canopyMat = new THREE.MeshStandardMaterial({ color: '#ffffff', vertexColors: true });
     for (const [list, detail, shadows] of [
       [near, 1, true],
       [deep, 0, false],
@@ -409,8 +409,8 @@ function buildTrees(t: PlayableHole): THREE.Group {
   if (pines.length) {
     const trunkGeo = new THREE.CylinderGeometry(0.12, 0.22, 1, 6).translate(0, 0.5, 0);
     const coneGeo = new THREE.ConeGeometry(1, 1, 8).translate(0, 0.5, 0);
-    const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ color: '#5b4330' }), pines.length);
-    const foliageMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+    const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: '#5b4330' }), pines.length);
+    const foliageMat = new THREE.MeshStandardMaterial({ color: '#ffffff' });
     const lower = new THREE.InstancedMesh(coneGeo, foliageMat, pines.length);
     const upper = new THREE.InstancedMesh(coneGeo, foliageMat, pines.length);
     const col = new THREE.Color();
@@ -443,7 +443,7 @@ function buildTrees(t: PlayableHole): THREE.Group {
       pos.setXYZ(k, pos.getX(k) * s, pos.getY(k) * s, pos.getZ(k) * s);
     }
     geo.computeVertexNormals();
-    const bushes = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: '#ffffff', flatShading: true }), gorse.length);
+    const bushes = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: '#ffffff', flatShading: true }), gorse.length);
     const col = new THREE.Color();
     gorse.forEach((o, i) => {
       q.setFromAxisAngle(up, o.rot);
@@ -464,7 +464,7 @@ function buildTrees(t: PlayableHole): THREE.Group {
 function buildTeeMarkers(t: PlayableHole): THREE.Group {
   const g = new THREE.Group();
   const geo = new THREE.SphereGeometry(0.12, 12, 8);
-  const mat = new THREE.MeshLambertMaterial({ color: '#2a62c9' });
+  const mat = new THREE.MeshStandardMaterial({ color: '#2a62c9' });
   const right = { x: -t.teeDir.z, z: t.teeDir.x };
   for (const side of [-1, 1]) {
     const x = t.tee.x + right.x * 3 * side + t.teeDir.x * 1.5;
@@ -481,7 +481,7 @@ function buildObStakes(t: PlayableHole): THREE.InstancedMesh | null {
   const pts = t.obStakes();
   if (!pts.length) return null;
   const geo = new THREE.CylinderGeometry(0.05, 0.05, 1.2, 6).translate(0, 0.6, 0);
-  const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: '#f4f4f4' }), pts.length);
+  const m = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: '#f4f4f4' }), pts.length);
   const m4 = new THREE.Matrix4();
   pts.forEach((p, i) => {
     m4.makeTranslation(p.x, t.heightAt(p.x, p.z), p.z);
@@ -505,13 +505,13 @@ function buildPin(t: PlayableHole): { pin: THREE.Group; flag: THREE.Mesh; flagBa
   liner.position.copy(cup.position);
   g.add(liner);
 
-  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.3, 8).translate(0, 1.15, 0), new THREE.MeshLambertMaterial({ color: '#f5f5f0' }));
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.3, 8).translate(0, 1.15, 0), new THREE.MeshStandardMaterial({ color: '#f5f5f0' }));
   stick.position.set(t.cup.x, y, t.cup.z);
   stick.castShadow = true;
   g.add(stick);
 
   const flagGeo = new THREE.PlaneGeometry(0.62, 0.42, 12, 4).translate(0.31, 0, 0);
-  const flag = new THREE.Mesh(flagGeo, new THREE.MeshLambertMaterial({ color: '#d42a2a', side: THREE.DoubleSide }));
+  const flag = new THREE.Mesh(flagGeo, new THREE.MeshStandardMaterial({ color: '#d42a2a', side: THREE.DoubleSide }));
   flag.position.set(t.cup.x, y + 2.05, t.cup.z);
   flag.castShadow = true;
   flag.userData.base = (flagGeo.attributes.position.array as Float32Array).slice();
