@@ -282,11 +282,62 @@ function buildSurroundings(t: PlayableHole): THREE.Group {
   g.add(land);
 
   if (parkland) return g;
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), makeWaterMaterial(new THREE.Color('#1d4e66'), new THREE.Color('#3b7f93')));
+  const seaGeo = new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2);
+  seaGeo.setAttribute('aDepth', new THREE.BufferAttribute(new Float32Array(seaGeo.attributes.position.count).fill(12), 1));
+  const sea = new THREE.Mesh(seaGeo, makeWaterMaterial(new THREE.Color('#0e3a52'), new THREE.Color('#2d6f82'), 3));
   sea.position.set(cx, -1.6, cz);
   sea.renderOrder = -1;
   g.add(sea);
   return g;
+}
+
+/** Per-vertex water depth (surface minus ground), which drives colour, see-through shallows and foam. */
+function withDepth(t: PlayableHole, geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const depth = new Float32Array(pos.count);
+  for (let k = 0; k < pos.count; k++) depth[k] = pos.getY(k) - t.heightAt(pos.getX(k), pos.getZ(k));
+  geo.setAttribute('aDepth', new THREE.BufferAttribute(depth, 1));
+  return geo;
+}
+
+/** Quads of a regular grid where `level(i, j)` is defined at all four corners. */
+function gridMesh(nx: number, nz: number, x0: number, z0: number, step: number, level: (i: number, j: number) => number): THREE.BufferGeometry | null {
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const vid = new Int32Array(nx * nz).fill(-1);
+  const vert = (i: number, j: number) => {
+    const k = j * nx + i;
+    if (vid[k] < 0) {
+      vid[k] = pos.length / 3;
+      pos.push(x0 + i * step, level(i, j), z0 + j * step);
+    }
+    return vid[k];
+  };
+  for (let j = 0; j < nz - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      if ([level(i, j), level(i + 1, j), level(i, j + 1), level(i + 1, j + 1)].some(Number.isNaN)) continue;
+      const a = vert(i, j);
+      const b = vert(i + 1, j);
+      const c = vert(i, j + 1);
+      const d = vert(i + 1, j + 1);
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  if (!idx.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  return geo;
+}
+
+function insidePolygon(x: number, z: number, poly: { x: number; z: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
 }
 
 function buildWater(t: PlayableHole): THREE.Mesh[] {
@@ -294,71 +345,51 @@ function buildWater(t: PlayableHole): THREE.Mesh[] {
   const mat = makeWaterMaterial();
   mat.side = THREE.DoubleSide;
   for (const w of t.waterSurfaces()) {
+    let geo: THREE.BufferGeometry | null = null;
     if (w.kind === 'grid') {
-      const pos: number[] = [];
-      const idx: number[] = [];
-      const vid = new Int32Array(w.nx * w.nz).fill(-1);
-      const vert = (i: number, j: number) => {
-        const k = j * w.nx + i;
-        if (vid[k] < 0) {
-          vid[k] = pos.length / 3;
-          pos.push(w.minX + i * w.step, w.level[k], w.minZ + j * w.step);
-        }
-        return vid[k];
-      };
-      for (let j = 0; j < w.nz - 1; j++) {
-        for (let i = 0; i < w.nx - 1; i++) {
-          const k = j * w.nx + i;
-          if (Number.isNaN(w.level[k]) || Number.isNaN(w.level[k + 1]) || Number.isNaN(w.level[k + w.nx]) || Number.isNaN(w.level[k + w.nx + 1])) continue;
-          const a = vert(i, j);
-          const b = vert(i + 1, j);
-          const c = vert(i, j + 1);
-          const d = vert(i + 1, j + 1);
-          idx.push(a, c, b, b, c, d);
-        }
-      }
-      if (!idx.length) continue;
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.setIndex(idx);
-      meshes.push(new THREE.Mesh(geo, mat));
-      continue;
-    }
-    if (w.kind === 'polygon') {
+      geo = gridMesh(w.nx, w.nz, w.minX, w.minZ, w.step, (i, j) => w.level[j * w.nx + i]);
+    } else if (w.kind === 'polygon') {
       if (w.outline.length < 3) continue;
-      // Shape works in x/y; map world z to -y so rotating -90° about X lands it back on z.
-      const shape = new THREE.Shape(w.outline.map((p) => new THREE.Vector2(p.x, -p.z)));
-      const geo = new THREE.ShapeGeometry(shape);
-      geo.rotateX(-Math.PI / 2);
-      geo.translate(0, w.level, 0);
-      meshes.push(new THREE.Mesh(geo, mat));
-      continue;
-    }
-    const verts: number[] = [];
-    const idx: number[] = [];
-    let row = 0;
-    for (let k = 0; k < w.points.length; k++) {
-      const pt = w.points[k];
-      // Only inside the playable patch; beyond it the outer land sits lower and the ribbon would float.
-      if (pt.x < t.minX + 2 || pt.x > t.maxX - 2 || pt.z < t.minZ + 2 || pt.z > t.maxZ - 2) continue;
-      const a = w.points[Math.max(0, k - 1)];
-      const b = w.points[Math.min(w.points.length - 1, k + 1)];
-      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-      const dx = (b.x - a.x) / len;
-      const dz = (b.z - a.z) / len;
-      const hw = w.halfWidth;
-      verts.push(pt.x - dz * hw, pt.level, pt.z + dx * hw, pt.x + dz * hw, pt.level, pt.z - dx * hw);
-      if (row > 0) {
-        const i = (row - 1) * 2;
-        idx.push(i, i + 1, i + 2, i + 1, i + 3, i + 2);
+      // A 1 m grid clipped to the outline, so depth (and foam) varies across the pond.
+      const xs = w.outline.map((p) => p.x);
+      const zs = w.outline.map((p) => p.z);
+      const x0 = Math.floor(Math.min(...xs)) - 1;
+      const z0 = Math.floor(Math.min(...zs)) - 1;
+      const nx = Math.ceil(Math.max(...xs) - x0) + 2;
+      const nz = Math.ceil(Math.max(...zs) - z0) + 2;
+      geo = gridMesh(nx, nz, x0, z0, 1, (i, j) => (insidePolygon(x0 + i, z0 + j, w.outline) ? w.level : NaN));
+    } else {
+      // Streams: a ribbon five vertices across, following the bed's level.
+      const verts: number[] = [];
+      const idx: number[] = [];
+      const COLS = 5;
+      let row = 0;
+      for (let k = 0; k < w.points.length; k++) {
+        const pt = w.points[k];
+        // Only inside the playable patch; beyond it the outer land sits lower and the ribbon would float.
+        if (pt.x < t.minX + 2 || pt.x > t.maxX - 2 || pt.z < t.minZ + 2 || pt.z > t.maxZ - 2) continue;
+        const a = w.points[Math.max(0, k - 1)];
+        const b = w.points[Math.min(w.points.length - 1, k + 1)];
+        const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        const dx = (b.x - a.x) / len;
+        const dz = (b.z - a.z) / len;
+        for (let c = 0; c < COLS; c++) {
+          const u = (c / (COLS - 1)) * 2 - 1;
+          verts.push(pt.x - dz * w.halfWidth * u, pt.level, pt.z + dx * w.halfWidth * u);
+        }
+        if (row > 0) {
+          const r0 = (row - 1) * COLS;
+          const r1 = row * COLS;
+          for (let c = 0; c < COLS - 1; c++) idx.push(r0 + c, r0 + c + 1, r1 + c, r0 + c + 1, r1 + c + 1, r1 + c);
+        }
+        row++;
       }
-      row++;
+      if (row < 2) continue;
+      geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      geo.setIndex(idx);
     }
-    if (row < 2) continue;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    geo.setIndex(idx);
-    meshes.push(new THREE.Mesh(geo, mat));
+    if (geo) meshes.push(new THREE.Mesh(withDepth(t, geo), mat));
   }
   return meshes;
 }
