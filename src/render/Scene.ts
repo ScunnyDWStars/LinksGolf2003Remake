@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { foliageUniforms } from './Foliage';
 import { makeCloudMaterial, waterUniforms } from './materials';
 import { PostFX } from './PostFX';
 import { presetFor, type Quality } from './Quality';
@@ -237,6 +238,7 @@ export class GameScene {
 
   render(time: number, dt = 1 / 60): void {
     waterUniforms.uTime.value = time;
+    foliageUniforms.uTime.value = time;
     this.sky.position.copy(this.camera.position);
     this.clouds.position.copy(this.camera.position);
     this.camera.updateMatrixWorld();

@@ -50,8 +50,23 @@ export class PostFX {
     this.composer.addPass(new RenderPass(scene, camera));
     if (q.ao) {
       const ao = new GTAOPass(scene, camera, size.x, size.y);
-      ao.blendIntensity = 0.85;
-      ao.updateGtaoMaterial({ radius: 1.6, distanceExponent: 1.4, thickness: 1.5, scale: 1, samples: q.level === 'ultra' ? 16 : 10 });
+      ao.blendIntensity = 0.7;
+      ao.updateGtaoMaterial({ radius: 1.1, distanceExponent: 1.4, thickness: 1.2, scale: 1, samples: q.level === 'ultra' ? 16 : 10 });
+      // The AO pass draws its own depth/normals with a plain override material, which would turn
+      // alpha-cut leaf cards into solid squares and lose the grass shader. Leave those out of it.
+      const pass = ao as unknown as { _renderOverride: (...a: unknown[]) => void };
+      const original = pass._renderOverride.bind(ao);
+      pass._renderOverride = (...args: unknown[]) => {
+        const hidden: THREE.Object3D[] = [];
+        scene.traverse((o) => {
+          if (o.userData.noAO && o.visible) {
+            o.visible = false;
+            hidden.push(o);
+          }
+        });
+        original(...args);
+        for (const o of hidden) o.visible = true;
+      };
       ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 12 });
       this.composer.addPass(ao);
     }

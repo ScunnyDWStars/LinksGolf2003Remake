@@ -11,6 +11,8 @@ import { AimMarker } from '../render/AimMarker';
 import { BallView } from '../render/BallView';
 import { CameraDirector } from '../render/Cameras';
 import { Golfer } from '../render/Golfer';
+import { Grass } from '../render/Grass';
+import { foliageUniforms } from '../render/Foliage';
 import { PuttGrid } from '../render/PuttGrid';
 import { FrameGovernor, lowerLevel, presetFor, resolveLevel, type DeviceInfo } from '../render/Quality';
 import type { GameScene } from '../render/Scene';
@@ -106,6 +108,8 @@ export class Game {
   private meterClock = 0;
 
   private readonly governor = new FrameGovernor();
+  private grass: Grass | null = null;
+  private grassKey = '';
   private lastFrame = 0;
 
   constructor(
@@ -173,6 +177,7 @@ export class Game {
     const level = resolveLevel(this.settings.graphics, this.gfx.gfxOverride, this.gfx.device);
     if (level !== this.gs.quality.level) {
       this.gs.applyQuality(presetFor(level));
+      this.syncGrass();
       this.gs.prepare(this.gs.scene);
     }
     if (this.phase === 'aiming') this.refreshHud();
@@ -216,8 +221,10 @@ export class Game {
     }
     this.grid?.dispose();
     this.terrain = this.course!.makeHole(courseHole);
-    this.meshes = buildHoleMeshes(this.terrain);
+    this.meshes = buildHoleMeshes(this.terrain, { leafCards: this.gs.quality.leafCards });
     this.gs.scene.add(this.meshes.group);
+    this.syncGrass();
+    this.grass?.setHole(this.terrain);
     this.gs.prepare(this.gs.scene);
     this.grid = new PuttGrid(this.gs.scene, this.terrain);
     if (!this.cams) this.cams = new CameraDirector(this.gs.camera, this.terrain);
@@ -888,6 +895,25 @@ export class Game {
     this.hud.setWind(windYaw - camYaw, mph < 0.5 ? '' : val, mph / 20);
   }
 
+  /** Create, resize or remove the grass to match the graphics preset. */
+  private syncGrass(): void {
+    const q = this.gs.quality;
+    const key = `${q.grass}:${q.grassRadius}`;
+    if (key === this.grassKey) return;
+    this.grassKey = key;
+    if (this.grass) {
+      this.gs.scene.remove(this.grass.mesh);
+      this.grass.dispose();
+      this.grass = null;
+    }
+    if (q.grass > 0) {
+      this.grass = new Grass(q.grass, q.grassRadius);
+      this.gs.scene.add(this.grass.mesh);
+      if (this.terrain) this.grass.setHole(this.terrain);
+      this.gs.prepare(this.grass.mesh);
+    }
+  }
+
   /** Called after each rendered frame: steps graphics down if the device can't keep up. */
   afterFrame(now: number): void {
     const dt = this.lastFrame ? now - this.lastFrame : 16;
@@ -895,6 +921,7 @@ export class Game {
     if (this.gfx.gfxOverride || document.hidden) return;
     if (this.gs.quality.level !== 'low' && this.governor.sample(dt)) {
       this.gs.applyQuality(presetFor(lowerLevel(this.gs.quality.level)));
+      this.syncGrass();
       this.gs.prepare(this.gs.scene);
       this.hud.showToast('Graphics reduced for smoothness', 'Change it any time under Options → Graphics', 2600);
     }
@@ -994,6 +1021,10 @@ export class Game {
         this.aim.update(this.aimPoint, this.ballPos, this.gs.camera, this.time, (x, z) => t.heightAt(x, z), this.club.isPutter === true);
       }
       if (this.meshes) animateFlag(this.meshes.flag, this.time, this.wind.x, this.wind.z);
+      this.grass?.update(this.time, this.gs.camera, this.wind.x, this.wind.z);
+      const ws = Math.min(1.2, this.wind.length() / 8) + 0.15;
+      const wl = this.wind.length() || 1;
+      foliageUniforms.uWind.value.set((this.wind.x / wl) * ws, (this.wind.z / wl) * ws);
       this.grid?.update(dt);
       this.gs.focusShadows(this.phase === 'flight' ? this.ballPos : cams.lookTarget.clone().lerp(this.gs.camera.position, 0.5));
     }

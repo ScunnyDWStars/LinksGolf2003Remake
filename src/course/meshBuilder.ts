@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CUP_RADIUS } from '../physics/constants';
 import type { SurfaceType } from '../physics/surfaces';
+import { addSway, crownGeometry, makeCrownMaterial, pineGeometry, trunkGeometry } from '../render/Foliage';
 import { buildGallery } from '../render/Gallery';
+import { makeTerrainMaterial } from '../render/TerrainMaterial';
 import { makeDetailTexture, makeWaterMaterial } from '../render/materials';
 import { clamp, smoothstep } from '../util/math';
 import { makeRng } from '../util/rng';
@@ -49,7 +51,7 @@ export interface HoleMeshes {
 }
 
 /** Build every visual for one hole. */
-export function buildHoleMeshes(t: PlayableHole): HoleMeshes {
+export function buildHoleMeshes(t: PlayableHole, opts: { leafCards?: boolean } = {}): HoleMeshes {
   const group = new THREE.Group();
   group.name = `hole-${t.info.number}`;
   detailTex ??= makeDetailTexture();
@@ -57,7 +59,7 @@ export function buildHoleMeshes(t: PlayableHole): HoleMeshes {
   group.add(buildTerrainMesh(t));
   group.add(buildSurroundings(t));
   for (const w of buildWater(t)) group.add(w);
-  group.add(buildTrees(t));
+  group.add(buildTrees(t, opts.leafCards ?? true));
   group.add(buildTeeMarkers(t));
   group.add(buildGallery(t));
   const obStakes = buildObStakes(t);
@@ -88,19 +90,13 @@ function colorFor(t: PlayableHole, x: number, z: number, out: THREE.Color): THRE
   const n = t.noise.noise(x / 6 + 11, z / 6 - 4);
   switch (surf) {
     case 'fairway':
-    case 'tee': {
-      // Mowing stripes across the line of play.
-      const s = t.progress(x, z);
-      const stripe = Math.floor(s / 9) % 2 === 0 ? 1.06 : 0.95;
-      out.multiplyScalar(stripe * (1 + n * 0.04));
+    case 'tee':
+      // Mowing stripes are drawn by the terrain shader (they depend on the viewing angle).
+      out.multiplyScalar(1 + n * 0.04);
       break;
-    }
-    case 'green': {
-      const a = Math.floor((x + z) / 3.2) % 2 === 0;
-      const b = Math.floor((x - z) / 3.2) % 2 === 0;
-      out.multiplyScalar((a !== b ? 1.05 : 0.96) * (1 + n * 0.02));
+    case 'green':
+      out.multiplyScalar(1 + n * 0.02);
       break;
-    }
     case 'rough':
       out.multiplyScalar(1 + n * 0.12);
       break;
@@ -136,11 +132,43 @@ function colorFor(t: PlayableHole, x: number, z: number, out: THREE.Color): THRE
   return out;
 }
 
+/** Mowing direction and signed stripe strength, plus surface weights (sand, soil, long grass, fine turf). */
+function turfFor(t: PlayableHole, x: number, z: number, mow: Float32Array, surf: Float32Array, k: number): void {
+  const s = t.surfaceAt(x, z);
+  let mx = 0;
+  let mz = 0;
+  let ms = 0;
+  if (s === 'fairway' || s === 'tee') {
+    const along = t.progress(x, z);
+    const d = t.centerline.dirAt(along);
+    mx = d.x;
+    mz = d.z;
+    ms = Math.floor(along / 9) % 2 === 0 ? 1 : -1;
+  } else if (s === 'green' || s === 'fringe') {
+    // Greens are cut in a criss-cross: alternate squares lean opposite ways.
+    const a = Math.floor((x + z) / 3.2) % 2 === 0;
+    const b = Math.floor((x - z) / 3.2) % 2 === 0;
+    mx = Math.SQRT1_2;
+    mz = Math.SQRT1_2;
+    ms = (a !== b ? 1 : -1) * (s === 'green' ? 0.75 : 0.35);
+  }
+  mow[k * 3] = mx;
+  mow[k * 3 + 1] = mz;
+  mow[k * 3 + 2] = ms;
+  const sand = s === 'sand' ? 1 : 0;
+  const soil = s === 'path' ? 1 : (s === 'deepRough' || s === 'ob') && t.inWoods(x, z) ? 0.8 : 0;
+  const longGrass = s === 'rough' ? 0.6 : s === 'deepRough' || s === 'ob' ? 1 : s === 'fringe' ? 0.25 : 0;
+  const fine = s === 'green' ? 1 : s === 'fringe' ? 0.5 : s === 'fairway' || s === 'tee' ? 0.2 : 0;
+  surf.set([sand, soil, longGrass, fine], k * 4);
+}
+
 function buildTerrainMesh(t: PlayableHole): THREE.Mesh {
   const { nx, nz } = t;
   const positions = new Float32Array(nx * nz * 3);
   const colors = new Float32Array(nx * nz * 3);
   const uvs = new Float32Array(nx * nz * 2);
+  const mow = new Float32Array(nx * nz * 3);
+  const surf = new Float32Array(nx * nz * 4);
   const c = new THREE.Color();
   for (let j = 0; j < nz; j++) {
     for (let i = 0; i < nx; i++) {
@@ -156,6 +184,7 @@ function buildTerrainMesh(t: PlayableHole): THREE.Mesh {
       colors[k * 3 + 2] = c.b;
       uvs[k * 2] = x / 3;
       uvs[k * 2 + 1] = z / 3;
+      turfFor(t, x, z, mow, surf, k);
     }
   }
   const index = new Uint32Array((nx - 1) * (nz - 1) * 6);
@@ -178,9 +207,11 @@ function buildTerrainMesh(t: PlayableHole): THREE.Mesh {
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setAttribute('aMow', new THREE.BufferAttribute(mow, 3));
+  geo.setAttribute('aSurf', new THREE.BufferAttribute(surf, 4));
   geo.setIndex(new THREE.BufferAttribute(index, 1));
   geo.computeVertexNormals();
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: detailTex });
+  const mat = makeTerrainMaterial();
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';
@@ -358,7 +389,7 @@ function canopyGeometry(detail: number): THREE.BufferGeometry {
   return geo;
 }
 
-function buildTrees(t: PlayableHole): THREE.Group {
+function buildTrees(t: PlayableHole, leafCards: boolean): THREE.Group {
   const g = new THREE.Group();
   const pines = t.obstacles.filter((o) => o.kind === 'pine');
   const broadleaf = t.obstacles.filter((o) => o.kind === 'oak' || o.kind === 'birch');
@@ -367,67 +398,83 @@ function buildTrees(t: PlayableHole): THREE.Group {
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   const rng = makeRng(t.info.number * 17);
+  const col = new THREE.Color();
+  const crownColor = (birch: boolean) =>
+    birch ? col.setHSL(0.19 + rng() * 0.04, 0.5, 0.28 + rng() * 0.05) : col.setHSL(0.22 + rng() * 0.07, 0.45 + rng() * 0.18, 0.17 + rng() * 0.07);
 
   if (broadleaf.length) {
-    const trunkGeo = new THREE.CylinderGeometry(0.16, 0.3, 1, 6).translate(0, 0.5, 0);
-    const near = broadleaf.filter((o) => !o.deep);
-    const deep = broadleaf.filter((o) => o.deep);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: '#ffffff' });
-    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, broadleaf.length);
-    const col = new THREE.Color();
+    const trunks = new THREE.InstancedMesh(trunkGeometry(), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.95 }), broadleaf.length);
     broadleaf.forEach((o, i) => {
       q.setFromAxisAngle(up, o.rot);
-      m4.compose(new THREE.Vector3(o.x, o.baseY - 0.2, o.z), q, new THREE.Vector3(o.kind === 'birch' ? 0.7 : 1.1, o.canopyBottom + 1.6, o.kind === 'birch' ? 0.7 : 1.1));
+      const w = o.kind === 'birch' ? 0.7 : 1.15;
+      m4.compose(new THREE.Vector3(o.x, o.baseY - 0.2, o.z), q, new THREE.Vector3(w, o.canopyBottom + 2.2, w));
       trunks.setMatrixAt(i, m4);
-      trunks.setColorAt(i, col.set(o.kind === 'birch' ? '#e6e1d6' : '#5a4330'));
+      trunks.setColorAt(i, col.set(o.kind === 'birch' ? '#d9d4c8' : '#4a3626'));
     });
     trunks.castShadow = true;
+    trunks.receiveShadow = true;
     g.add(trunks);
-    const canopyMat = new THREE.MeshStandardMaterial({ color: '#ffffff', vertexColors: true });
+
+    const near = broadleaf.filter((o) => !o.deep);
+    const deep = broadleaf.filter((o) => o.deep);
+    const place = (o: (typeof broadleaf)[number], scale: number) => {
+      q.setFromAxisAngle(up, o.rot);
+      const r0 = o.kind === 'birch' ? o.radius * 0.8 : o.radius;
+      // Rounded crowns (about as tall as they are wide), topping out at the tree's height.
+      const h = Math.min(o.height - o.canopyBottom + 0.6, r0 * (o.kind === 'birch' ? 2.6 : 2.1));
+      const base = o.baseY + o.height - h;
+      m4.compose(new THREE.Vector3(o.x, base + (h * (1 - scale)) / 2, o.z), q, new THREE.Vector3(r0 * scale, h * scale, r0 * scale));
+    };
+    // Dense core so crowns aren't see-through, then leaf cards for the ragged, airy outline.
+    const coreMat = new THREE.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, roughness: 0.9, envMapIntensity: 0.5 });
+    addSway(coreMat, 0.12);
     for (const [list, detail, shadows] of [
       [near, 1, true],
       [deep, 0, false],
     ] as const) {
       if (!list.length) continue;
-      const crowns = new THREE.InstancedMesh(canopyGeometry(detail), canopyMat, list.length);
+      const cores = new THREE.InstancedMesh(canopyGeometry(detail), coreMat, list.length);
+      const colors: THREE.Color[] = [];
       list.forEach((o, i) => {
-        q.setFromAxisAngle(up, o.rot);
-        const h = o.height - o.canopyBottom + 0.6;
-        const r = o.kind === 'birch' ? o.radius * 0.8 : o.radius;
-        m4.compose(new THREE.Vector3(o.x, o.baseY + o.canopyBottom - 0.6, o.z), q, new THREE.Vector3(r, h, r));
-        crowns.setMatrixAt(i, m4);
-        if (o.kind === 'birch') col.setHSL(0.2 + rng() * 0.04, 0.5, 0.36 + rng() * 0.06);
-        else col.setHSL(0.24 + rng() * 0.07, 0.42 + rng() * 0.15, 0.24 + rng() * 0.08);
-        crowns.setColorAt(i, col);
+        place(o, leafCards && !o.deep ? 0.82 : 1);
+        cores.setMatrixAt(i, m4);
+        const c = crownColor(o.kind === 'birch').clone();
+        colors.push(c);
+        cores.setColorAt(i, c.clone().multiplyScalar(0.8));
       });
-      crowns.castShadow = shadows;
-      crowns.receiveShadow = shadows;
-      g.add(crowns);
+      cores.castShadow = shadows;
+      cores.receiveShadow = true;
+      g.add(cores);
+      if (leafCards && detail === 1) {
+        const cards = new THREE.InstancedMesh(crownGeometry(), makeCrownMaterial(), list.length);
+        list.forEach((o, i) => {
+          place(o, 1.08);
+          cards.setMatrixAt(i, m4);
+          cards.setColorAt(i, colors[i]);
+        });
+        cards.castShadow = true;
+        cards.receiveShadow = true;
+        cards.userData.noAO = true;
+        g.add(cards);
+      }
     }
   }
 
   if (pines.length) {
-    const trunkGeo = new THREE.CylinderGeometry(0.12, 0.22, 1, 6).translate(0, 0.5, 0);
-    const coneGeo = new THREE.ConeGeometry(1, 1, 8).translate(0, 0.5, 0);
-    const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: '#5b4330' }), pines.length);
-    const foliageMat = new THREE.MeshStandardMaterial({ color: '#ffffff' });
-    const lower = new THREE.InstancedMesh(coneGeo, foliageMat, pines.length);
-    const upper = new THREE.InstancedMesh(coneGeo, foliageMat, pines.length);
-    const col = new THREE.Color();
+    const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.1, 0.22, 1, 6).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: '#4d3826', roughness: 0.95 }), pines.length);
+    const needleMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.85, side: THREE.DoubleSide, envMapIntensity: 0.5 });
+    addSway(needleMat, 0.08);
+    const crowns = new THREE.InstancedMesh(pineGeometry(), needleMat, pines.length);
     pines.forEach((o, i) => {
       q.setFromAxisAngle(up, o.rot);
-      m4.compose(new THREE.Vector3(o.x, o.baseY - 0.2, o.z), q, new THREE.Vector3(1, o.canopyBottom + 1.2, 1));
+      m4.compose(new THREE.Vector3(o.x, o.baseY - 0.2, o.z), q, new THREE.Vector3(1, o.canopyBottom + 1.6, 1));
       trunks.setMatrixAt(i, m4);
-      const h = o.height - o.canopyBottom;
-      m4.compose(new THREE.Vector3(o.x, o.baseY + o.canopyBottom, o.z), q, new THREE.Vector3(o.radius, h * 0.65, o.radius));
-      lower.setMatrixAt(i, m4);
-      m4.compose(new THREE.Vector3(o.x, o.baseY + o.canopyBottom + h * 0.42, o.z), q, new THREE.Vector3(o.radius * 0.7, h * 0.58, o.radius * 0.7));
-      upper.setMatrixAt(i, m4);
-      col.setHSL(0.3 + rng() * 0.05, 0.4, 0.2 + rng() * 0.06);
-      lower.setColorAt(i, col);
-      upper.setColorAt(i, col.multiplyScalar(1.1));
+      const h = o.height - o.canopyBottom + 0.4;
+      m4.compose(new THREE.Vector3(o.x, o.baseY + o.canopyBottom - 0.4, o.z), q, new THREE.Vector3(o.radius, h, o.radius));
+      crowns.setMatrixAt(i, m4);
+      crowns.setColorAt(i, col.setHSL(0.33 + rng() * 0.05, 0.42, 0.11 + rng() * 0.05));
     });
-    for (const m of [trunks, lower, upper]) {
+    for (const m of [trunks, crowns]) {
       m.castShadow = true;
       m.receiveShadow = true;
       g.add(m);
@@ -435,23 +482,24 @@ function buildTrees(t: PlayableHole): THREE.Group {
   }
 
   if (gorse.length) {
-    const geo = new THREE.IcosahedronGeometry(1, 1).translate(0, 0.55, 0);
+    const geo = new THREE.IcosahedronGeometry(1, 2).translate(0, 0.55, 0);
     // Jitter vertices for a scrubby silhouette.
     const pos = geo.attributes.position as THREE.BufferAttribute;
     for (let k = 0; k < pos.count; k++) {
-      const s = 0.85 + ((Math.sin(k * 12.9898) * 43758.5453) % 1 + 1) % 1 * 0.3;
+      const s = 0.82 + ((Math.sin(k * 12.9898) * 43758.5453) % 1 + 1) % 1 * 0.36;
       pos.setXYZ(k, pos.getX(k) * s, pos.getY(k) * s, pos.getZ(k) * s);
     }
     geo.computeVertexNormals();
-    const bushes = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: '#ffffff', flatShading: true }), gorse.length);
-    const col = new THREE.Color();
+    const bushMat = new THREE.MeshStandardMaterial({ color: '#ffffff', flatShading: true, roughness: 0.9 });
+    addSway(bushMat, 0.05);
+    const bushes = new THREE.InstancedMesh(geo, bushMat, gorse.length);
     gorse.forEach((o, i) => {
       q.setFromAxisAngle(up, o.rot);
       m4.compose(new THREE.Vector3(o.x, o.baseY - 0.25, o.z), q, new THREE.Vector3(o.radius, o.height, o.radius));
       bushes.setMatrixAt(i, m4);
       // Some bushes in yellow bloom.
-      if (rng() < 0.35) col.setHSL(0.13, 0.75, 0.45 + rng() * 0.08);
-      else col.setHSL(0.25 + rng() * 0.04, 0.45, 0.2 + rng() * 0.05);
+      if (rng() < 0.35) col.setHSL(0.13, 0.78, 0.38 + rng() * 0.08);
+      else col.setHSL(0.25 + rng() * 0.04, 0.45, 0.13 + rng() * 0.05);
       bushes.setColorAt(i, col);
     });
     bushes.castShadow = true;
