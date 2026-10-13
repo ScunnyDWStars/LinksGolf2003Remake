@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { COURSES } from '../src/course/courses';
 import { KESTREL_DUNES } from '../src/course/kestrelDunes';
 import { HoleTerrain } from '../src/course/terrain';
 import { toYards } from '../src/util/math';
 
-const terrains = KESTREL_DUNES.holes.map((h) => new HoleTerrain(h));
+describe.each(COURSES.map((c) => [c.name, c] as const))('%s', (_name, course) => {
+  const terrains = course.holes.map((h) => new HoleTerrain(h, course.style));
 
-describe('Kestrel Dunes', () => {
   it('has 18 holes numbered in order, totalling par 72 with 36 out and 36 in', () => {
-    const holes = KESTREL_DUNES.holes;
+    const holes = course.holes;
     expect(holes).toHaveLength(18);
     holes.forEach((h, i) => expect(h.number).toBe(i + 1));
     const par = (a: number, b: number) => holes.slice(a, b).reduce((s, h) => s + h.par, 0);
@@ -16,7 +17,7 @@ describe('Kestrel Dunes', () => {
   });
 
   it('uses each stroke index 1-18 exactly once', () => {
-    const idx = KESTREL_DUNES.holes.map((h) => h.handicap).sort((a, b) => a - b);
+    const idx = course.holes.map((h) => h.handicap).sort((a, b) => a - b);
     expect(idx).toEqual(Array.from({ length: 18 }, (_, i) => i + 1));
   });
 
@@ -53,6 +54,21 @@ describe('Kestrel Dunes', () => {
     }
     expect(terrains.reduce((s, t) => s + t.obstacles.length, 0)).toBeGreaterThan(150);
   });
+
+  it('keeps the tee shot and approach clear of trees', () => {
+    for (const t of terrains) {
+      for (let s = 0; s <= t.length; s += 5) {
+        const p = t.centerline.pointAt(s);
+        for (const o of t.obstaclesNear(p.x, p.z)) {
+          expect(Math.hypot(o.x - p.x, o.z - p.z)).toBeGreaterThan(o.radius);
+        }
+      }
+    }
+  });
+});
+
+describe('Kestrel Dunes specifics', () => {
+  const terrains = KESTREL_DUNES.holes.map((h) => new HoleTerrain(h, 'links'));
 
   it('hazards exist where the design says', () => {
     const h2 = terrains[1];

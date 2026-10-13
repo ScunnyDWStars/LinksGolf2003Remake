@@ -13,8 +13,8 @@ export class Golfer {
   private putting = false;
 
   constructor() {
-    const shirt = new THREE.MeshLambertMaterial({ color: '#1e3a6e' });
-    const trousers = new THREE.MeshLambertMaterial({ color: '#cbbd94' });
+    const shirt = new THREE.MeshLambertMaterial({ color: '#e9c22c' });
+    const trousers = new THREE.MeshLambertMaterial({ color: '#2f3640' });
     const skin = new THREE.MeshLambertMaterial({ color: '#d9a47e' });
     const white = new THREE.MeshLambertMaterial({ color: '#f2f2f2' });
     const shoe = new THREE.MeshLambertMaterial({ color: '#3a2a20' });

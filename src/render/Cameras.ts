@@ -43,22 +43,23 @@ export class CameraDirector {
     const dist = d.length();
     d.normalize();
     if (putting) {
-      const back = THREE.MathUtils.clamp(3.6 + dist * 0.22, 4, 9);
+      const back = THREE.MathUtils.clamp(5.5 + dist * 0.3, 6, 12);
       this.wantPos.copy(ball).addScaledVector(d, -back);
-      this.wantPos.x += -d.z * 0.45;
-      this.wantPos.z += d.x * 0.45;
-      this.wantPos.y = Math.max(this.ground(this.wantPos.x, this.wantPos.z), ball.y) + 1.4 + dist * 0.06;
+      this.wantPos.x += -d.z * 0.8;
+      this.wantPos.z += d.x * 0.8;
+      this.wantPos.y = Math.max(this.ground(this.wantPos.x, this.wantPos.z), ball.y) + 2.3 + dist * 0.08;
       this.wantLook.copy(ball).addScaledVector(d, Math.min(dist, 12) * 0.55);
       this.wantLook.y = this.ground(this.wantLook.x, this.wantLook.z);
     } else {
       // Behind the ball and a touch right, so the golfer (who stands left of the ball) frames the shot.
-      this.wantPos.copy(ball).addScaledVector(d, -5.6);
-      this.wantPos.x += -d.z * 0.55;
-      this.wantPos.z += d.x * 0.55;
-      this.wantPos.y = Math.max(this.ground(this.wantPos.x, this.wantPos.z), ball.y) + 1.75;
-      const ahead = Math.min(Math.max(dist, 30), 160);
+      // Classic broadcast framing: well behind and above, golfer small in the lower middle, hole laid out ahead.
+      this.wantPos.copy(ball).addScaledVector(d, -9.5);
+      this.wantPos.x += -d.z * 1.1;
+      this.wantPos.z += d.x * 1.1;
+      this.wantPos.y = Math.max(this.ground(this.wantPos.x, this.wantPos.z), ball.y) + 3.4;
+      const ahead = Math.min(Math.max(dist, 40), 170);
       this.wantLook.copy(ball).addScaledVector(d, ahead);
-      this.wantLook.y = this.ground(this.wantLook.x, this.wantLook.z) + 1;
+      this.wantLook.y = Math.min(this.ground(this.wantLook.x, this.wantLook.z), ball.y + ahead * 0.08) - 2;
       // Don't stare into the ground on downhill or up into the sky on uphill shots.
       const minLook = ball.y - ahead * 0.12;
       if (this.wantLook.y < minLook) this.wantLook.y = minLook;

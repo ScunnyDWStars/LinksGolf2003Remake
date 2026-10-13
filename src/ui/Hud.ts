@@ -1,20 +1,26 @@
 import { el } from './dom';
+import { MiniMap } from './MiniMap';
 
-/** Heads-up display: hole info, score, club, lie, distance, wind and the message toast. */
+/**
+ * Heads-up display in the classic layout: hole banner and player card top-left, hole map top-right,
+ * a small club tag floating beside the golfer, the swing meter at the bottom and a slim button bar.
+ */
 export class Hud {
   readonly root: HTMLDivElement;
   readonly meterSlot: HTMLDivElement;
   readonly buttons: HTMLDivElement;
+  readonly minimap: MiniMap;
+  private readonly course: HTMLDivElement;
   private readonly holeTitle: HTMLDivElement;
   private readonly holeInfo: HTMLDivElement;
-  private readonly score: HTMLDivElement;
-  private readonly clubName: HTMLDivElement;
-  private readonly clubInfo: HTMLDivElement;
-  private readonly shape: HTMLDivElement;
-  private readonly lie: HTMLDivElement;
-  private readonly toPin: HTMLDivElement;
-  private readonly shot: HTMLDivElement;
-  private readonly elev: HTMLDivElement;
+  private readonly playerName: HTMLSpanElement;
+  private readonly playerScore: HTMLSpanElement;
+  private readonly shotLine: HTMLDivElement;
+  private readonly lieLine: HTMLDivElement;
+  private readonly tag: HTMLDivElement;
+  private readonly tagClub: HTMLDivElement;
+  private readonly tagInfo: HTMLDivElement;
+  private readonly tagShape: HTMLDivElement;
   private readonly windCanvas: HTMLCanvasElement;
   private readonly windText: HTMLDivElement;
   private readonly toast: HTMLDivElement;
@@ -26,29 +32,33 @@ export class Hud {
     this.root = el('div', 'hud hidden', undefined, parent);
 
     const tl = el('div', 'panel hud-tl', undefined, this.root);
-    this.holeTitle = el('div', 'hole-title', '', tl);
-    this.holeInfo = el('div', 'hole-info', '', tl);
-    this.score = el('div', 'score-line', '', tl);
+    const banner = el('div', 'banner', undefined, tl);
+    this.course = el('div', 'banner-course', '', banner);
+    this.holeTitle = el('div', 'hole-title', '', banner);
+    this.holeInfo = el('div', 'hole-info', '', banner);
+    const player = el('div', 'player-card', undefined, tl);
+    const row = el('div', 'player-row', undefined, player);
+    el('span', 'player-dot', '', row);
+    this.playerName = el('span', 'player-name', '', row);
+    this.playerScore = el('span', 'player-score', '', row);
+    this.shotLine = el('div', 'shot-line', '', player);
+    this.lieLine = el('div', 'lie-line', '', player);
 
-    const tr = el('div', 'panel hud-tr', undefined, this.root);
-    this.windCanvas = el('canvas', 'wind-canvas', undefined, tr);
-    this.windCanvas.width = 120;
-    this.windCanvas.height = 120;
-    this.windText = el('div', 'wind-text', '', tr);
+    const tr = el('div', 'hud-tr', undefined, this.root);
+    this.minimap = new MiniMap(tr);
+    const wind = el('div', 'panel wind', undefined, tr);
+    this.windCanvas = el('canvas', 'wind-canvas', undefined, wind);
+    this.windCanvas.width = 96;
+    this.windCanvas.height = 96;
+    this.windText = el('div', 'wind-text', '', wind);
+
+    this.tag = el('div', 'club-tag', undefined, this.root);
+    this.tagClub = el('div', 'tag-club', '', this.tag);
+    this.tagInfo = el('div', 'tag-info', '', this.tag);
+    this.tagShape = el('div', 'tag-shape', '', this.tag);
 
     const bottom = el('div', 'hud-bottom', undefined, this.root);
-    const left = el('div', 'panel club-panel', undefined, bottom);
-    el('div', 'panel-label', 'Club', left);
-    this.clubName = el('div', 'club-name', '', left);
-    this.clubInfo = el('div', 'club-info', '', left);
-    this.shape = el('div', 'club-shape', '', left);
     this.meterSlot = el('div', 'meter-slot', undefined, bottom);
-    const right = el('div', 'panel shot-panel', undefined, bottom);
-    el('div', 'panel-label', 'Shot', right);
-    this.toPin = el('div', 'to-pin', '', right);
-    this.lie = el('div', 'lie', '', right);
-    this.elev = el('div', 'elev', '', right);
-    this.shot = el('div', 'shot-num', '', right);
 
     this.buttons = el('div', 'hud-buttons', undefined, this.root);
     this.toast = el('div', 'toast', '', this.root);
@@ -56,8 +66,8 @@ export class Hud {
     this.help = el('div', 'help hidden', '', this.root);
     this.help.innerHTML = [
       '<b>Swing</b> Space / click (3 clicks: start, power, accuracy)',
-      '<b>Aim</b> ← → (hold Shift for fine) · right-click the ground',
-      '<b>Club</b> ↑ ↓ or Q / E · <b>Shot shape</b> F',
+      '<b>Aim</b> ← → (hold Shift for fine) · right-click the ground or the map',
+      '<b>Club</b> ↑ ↓ or Q / E · <b>Shot shape</b> F · <b>Putter range</b> Z / X',
       '<b>Camera</b> C · <b>Overview</b> M · <b>Putt grid</b> G',
       '<b>Replay</b> R · <b>Scorecard</b> Tab · <b>Menu</b> Esc · <b>Help</b> H',
     ].join('<br>');
@@ -71,10 +81,10 @@ export class Hud {
     this.help.classList.toggle('hidden', force === undefined ? undefined : !force);
   }
 
-  addButton(label: string, title: string, onClick: () => void, id?: string): HTMLButtonElement {
-    const b = el('button', 'hud-btn', label, this.buttons);
+  addButton(label: string, title: string, onClick: () => void, cls = ''): HTMLButtonElement {
+    const b = el('button', `hud-btn ${cls}`.trim(), label, this.buttons);
     b.title = title;
-    if (id) b.dataset.id = id;
+    b.setAttribute('aria-label', title);
     b.addEventListener('click', (e) => {
       e.stopPropagation();
       onClick();
@@ -83,31 +93,37 @@ export class Hud {
     return b;
   }
 
-  setHole(title: string, info: string): void {
+  setHole(course: string, title: string, info: string): void {
+    this.course.textContent = course;
     this.holeTitle.textContent = title;
     this.holeInfo.textContent = info;
   }
 
-  setScore(text: string): void {
-    this.score.textContent = text;
+  setPlayer(name: string, score: string): void {
+    this.playerName.textContent = name;
+    this.playerScore.textContent = score;
+  }
+
+  setShot(shot: string, lie: string): void {
+    this.shotLine.textContent = shot;
+    this.lieLine.textContent = lie;
   }
 
   setClub(name: string, info: string, shape: string): void {
-    this.clubName.textContent = name;
-    this.clubInfo.textContent = info;
-    this.shape.textContent = shape;
+    this.tagClub.textContent = name;
+    this.tagInfo.textContent = info;
+    this.tagShape.textContent = shape;
   }
 
-  setShot(toPin: string, lie: string, elev: string, shot: string): void {
-    this.toPin.textContent = toPin;
-    this.lie.textContent = lie;
-    this.elev.textContent = elev;
-    this.shot.textContent = shot;
+  /** Float the club tag beside the golfer (screen pixels). */
+  placeClubTag(x: number, y: number, visible: boolean): void {
+    this.tag.style.display = visible ? '' : 'none';
+    if (visible) this.tag.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
   }
 
   /** Wind arrow drawn relative to the camera's heading so "up" means straight away from you. */
   setWind(relAngle: number, text: string, strength: number): void {
-    this.windText.textContent = text;
+    this.windText.textContent = text || 'Calm';
     const c = this.windCanvas.getContext('2d')!;
     const W = this.windCanvas.width;
     c.clearRect(0, 0, W, W);
@@ -117,29 +133,20 @@ export class Hud {
     c.beginPath();
     c.arc(cx, cx, W * 0.42, 0, Math.PI * 2);
     c.stroke();
-    c.fillStyle = 'rgba(255,255,255,0.55)';
-    c.font = '12px system-ui';
-    c.textAlign = 'center';
-    c.fillText('▲', cx, 12);
-    if (strength < 0.05) {
-      c.fillStyle = '#fff';
-      c.font = 'bold 16px system-ui';
-      c.fillText('Calm', cx, cx + 5);
-      return;
-    }
+    if (strength < 0.05) return;
     c.save();
     c.translate(cx, cx);
     c.rotate(relAngle);
-    const len = W * 0.18 + Math.min(1, strength) * W * 0.18;
+    const len = W * 0.16 + Math.min(1, strength) * W * 0.2;
     c.fillStyle = strength > 0.6 ? '#ff7a59' : strength > 0.3 ? '#ffd23f' : '#9be7a9';
     c.beginPath();
     c.moveTo(0, -len);
-    c.lineTo(11, -len + 18);
-    c.lineTo(4, -len + 18);
-    c.lineTo(4, len * 0.7);
-    c.lineTo(-4, len * 0.7);
-    c.lineTo(-4, -len + 18);
-    c.lineTo(-11, -len + 18);
+    c.lineTo(10, -len + 16);
+    c.lineTo(3.5, -len + 16);
+    c.lineTo(3.5, len * 0.7);
+    c.lineTo(-3.5, len * 0.7);
+    c.lineTo(-3.5, -len + 16);
+    c.lineTo(-10, -len + 16);
     c.closePath();
     c.fill();
     c.restore();

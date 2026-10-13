@@ -89,7 +89,8 @@ export function simulateShot(launch: Launch, ground: GroundModel, wind: Vector3,
       if (surfHere !== 'water') lastDry.set(s.pos.x, ground.heightAt(s.pos.x, s.pos.z), s.pos.z);
 
       // Trees.
-      for (const o of ground.obstacles) {
+      const nearby = ground.obstaclesNear ? ground.obstaclesNear(s.pos.x, s.pos.z) : ground.obstacles;
+      for (const o of nearby) {
         if (hitTrees.has(o)) continue;
         const dx = s.pos.x - o.x;
         const dz = s.pos.z - o.z;

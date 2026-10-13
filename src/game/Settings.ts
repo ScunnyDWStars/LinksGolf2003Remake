@@ -5,6 +5,7 @@ export type Units = 'yards' | 'meters';
 
 export interface Settings {
   playerName: string;
+  courseId: string;
   swingType: SwingType;
   difficulty: Difficulty;
   powerBoost: boolean;
@@ -18,6 +19,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   playerName: 'Player 1',
+  courseId: 'cedar',
   swingType: 'classic',
   difficulty: 'pro',
   powerBoost: false,
@@ -51,7 +53,7 @@ export function saveSettings(s: Settings): void {
 
 const BEST_KEY = 'greenside-classic.best.v1';
 
-/** Best (lowest) score per round type, e.g. "18", "front", "back". */
+/** Best (lowest) score per course and round type, e.g. "cedar:18", "kestrel:front". */
 export function loadBest(): Record<string, number> {
   try {
     return JSON.parse(localStorage.getItem(BEST_KEY) ?? '{}') as Record<string, number>;

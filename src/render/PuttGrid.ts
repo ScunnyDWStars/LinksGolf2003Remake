@@ -81,7 +81,7 @@ export class PuttGrid {
     this.dotPhase = new Float32Array(count).map((_, i) => (i * 0.37) % 1);
     const dg = new THREE.BufferGeometry();
     dg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
-    this.dots = new THREE.Points(dg, new THREE.PointsMaterial({ color: '#ffffff', size: 0.07, sizeAttenuation: true }));
+    this.dots = new THREE.Points(dg, new THREE.PointsMaterial({ color: '#ffffff', size: 0.05, sizeAttenuation: true }));
     this.dots.frustumCulled = false;
     this.group.add(this.dots);
   }

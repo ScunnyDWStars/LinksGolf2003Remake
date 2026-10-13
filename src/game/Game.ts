@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { Sfx } from '../audio/Sfx';
-import { KESTREL_DUNES } from '../course/kestrelDunes';
+import { COURSES, getCourse } from '../course/courses';
 import { animateFlag, buildHoleMeshes, type HoleMeshes } from '../course/meshBuilder';
 import { HoleTerrain } from '../course/terrain';
-import type { HoleSpec } from '../course/types';
+import type { CourseSpec, HoleSpec } from '../course/types';
 import { Input } from '../input/Input';
 import { FRAME_DT } from '../physics/constants';
 import { simulateShot, type ShotResult } from '../physics/simulator';
@@ -65,6 +65,7 @@ export class Game {
   private grid: PuttGrid | null = null;
 
   private phase: Phase = 'menu';
+  private course: CourseSpec = getCourse(this.settings.courseId);
   private round: Round | null = null;
   private roundKind: StartOptions['kind'] = '18';
   private holeIdx = 0;
@@ -105,7 +106,7 @@ export class Game {
     this.meterView = new SwingMeterView(this.hud.meterSlot);
     this.scorecard = new Scorecard(this.ui);
     const onSettings = () => this.applySettings();
-    this.menu = new MainMenu(this.ui, KESTREL_DUNES, this.settings, onSettings, (o) => this.startRound(o));
+    this.menu = new MainMenu(this.ui, COURSES, this.settings, onSettings, (o) => this.startRound(o), () => this.showIdleBackdrop());
     this.pause = new PauseMenu(this.ui, this.settings, onSettings, {
       resume: () => this.setPaused(false),
       scorecard: () => this.showScorecard(),
@@ -130,8 +131,8 @@ export class Game {
       b.addEventListener('pointerdown', () => this.input.held.add(key));
       for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => this.input.held.delete(key));
     };
-    holdable('◀', 'Aim left', 'ArrowLeft');
-    holdable('▶', 'Aim right', 'ArrowRight');
+    holdable('◀', 'Aim left (←)', 'ArrowLeft');
+    holdable('▶', 'Aim right (→)', 'ArrowRight');
     h.addButton('Club −', 'Shorter club (↓)', () => this.changeClub(1));
     h.addButton('Club +', 'Longer club (↑)', () => this.changeClub(-1));
     h.addButton('Shape', 'Shot shape (F)', () => this.cycleShape());
@@ -141,7 +142,13 @@ export class Game {
     h.addButton('Replay', 'Replay last shot (R)', () => this.replay());
     h.addButton('Card', 'Scorecard (Tab)', () => this.showScorecard());
     h.addButton('?', 'Help (H)', () => this.hud.toggleHelp());
-    h.addButton('☰', 'Menu (Esc)', () => this.setPaused(!this.paused));
+    h.addButton('Menu', 'Menu (Esc)', () => this.setPaused(!this.paused), 'menu-btn');
+    // Click or tap the hole map to aim there.
+    h.minimap.root.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      const p = h.minimap.screenToWorld(e.clientX, e.clientY);
+      if (p) this.aimAtWorld(p[0], p[1]);
+    });
   }
 
   private applySettings(): void {
@@ -154,7 +161,8 @@ export class Game {
 
   /** A pretty hole behind the main menu. */
   private showIdleBackdrop(): void {
-    this.loadTerrain(KESTREL_DUNES.holes[17]);
+    this.course = getCourse(this.settings.courseId);
+    this.loadTerrain(this.course.holes[this.course.style === 'parkland' ? 0 : 17]);
     this.cams!.startFlyover();
     this.ballView.ball.visible = false;
     this.golfer.visible = false;
@@ -167,7 +175,7 @@ export class Game {
       this.meshes.dispose();
     }
     this.grid?.dispose();
-    this.terrain = new HoleTerrain(spec);
+    this.terrain = new HoleTerrain(spec, this.course.style);
     this.meshes = buildHoleMeshes(this.terrain);
     this.gs.scene.add(this.meshes.group);
     this.grid = new PuttGrid(this.gs.scene, this.terrain);
@@ -179,7 +187,8 @@ export class Game {
   startRound(o: StartOptions): void {
     this.sfx.unlock();
     this.roundKind = o.kind;
-    const all = KESTREL_DUNES.holes;
+    this.course = getCourse(this.settings.courseId);
+    const all = this.course.holes;
     const holes =
       o.kind === 'front' ? all.slice(0, 9) : o.kind === 'back' ? all.slice(9) : o.kind === 'practice' ? [all[o.practiceHole - 1]] : all;
     this.round = new Round(this.settings.playerName, holes);
@@ -222,7 +231,8 @@ export class Game {
     this.overviewOn = false;
 
     const yards = Math.round(this.dist(t.length));
-    this.hud.setHole(`Hole ${spec.number} — ${spec.name}`, `Par ${spec.par} · ${yards} ${this.unit()} · Hcp ${spec.handicap}`);
+    this.hud.setHole(this.course.name, `Hole ${spec.number}, Par ${spec.par}`, `${spec.name} · ${yards} ${this.unit()}`);
+    this.hud.minimap.setHole(t);
     this.updateScoreLine();
     this.hud.showToast(`Hole ${spec.number}`, `${spec.name} · Par ${spec.par} · ${yards} ${this.unit()}`, 2600, true);
 
@@ -399,21 +409,25 @@ export class Game {
           if (o.y + d.y * m < t.heightAt(o.x + d.x * m, o.z + d.z * m)) hi = m;
           else lo = m;
         }
-        const hx = o.x + d.x * hi;
-        const hz = o.z + d.z * hi;
-        const dx = hx - this.ballPos.x;
-        const dz = hz - this.ballPos.z;
-        if (Math.hypot(dx, dz) < 0.5) return;
-        this.aimYaw = Math.atan2(dx, -dz);
-        if (this.club.isPutter) this.aimDist = Math.hypot(dx, dz);
-        this.updateAimPoint();
-        this.placeGolfer();
-        if (!this.overviewOn) this.cams!.address(this.ballPos, this.aimPoint, this.club.isPutter === true);
-        this.refreshHud();
+        this.aimAtWorld(o.x + d.x * hi, o.z + d.z * hi);
         return;
       }
       prev = s;
     }
+  }
+
+  /** Turn to face a point on the ground (keeps the club's distance unless putting). */
+  aimAtWorld(hx: number, hz: number): void {
+    if (this.phase !== 'aiming') return;
+    const dx = hx - this.ballPos.x;
+    const dz = hz - this.ballPos.z;
+    if (Math.hypot(dx, dz) < 0.5) return;
+    this.aimYaw = Math.atan2(dx, -dz);
+    if (this.club.isPutter) this.aimDist = Math.hypot(dx, dz);
+    this.updateAimPoint();
+    this.placeGolfer();
+    if (!this.overviewOn) this.cams!.address(this.ballPos, this.aimPoint, this.club.isPutter === true);
+    this.refreshHud();
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -583,6 +597,7 @@ export class Game {
     this.sampleShot(s, pos, vel);
     this.ballPos.copy(pos);
     if (!s.putt) this.ballView.pushTrail(pos);
+    if (!s.replay) this.hud.minimap.addTrail(pos.x, pos.z);
     this.cams!.updateFlight(pos, vel, dt);
 
     // Fire sounds for events we've passed.
@@ -684,6 +699,7 @@ export class Game {
       this.afterSettle = () => {
         this.ballPos.copy(res.nextPos);
         this.ballView.clearTrail();
+        if (res.penalty) this.hud.minimap.clearTrail();
         this.prepareShot();
       };
     }
@@ -715,7 +731,7 @@ export class Game {
   private roundOver(): void {
     const round = this.round!;
     this.phase = 'roundOver';
-    const kind = this.roundKind === 'practice' ? '' : this.roundKind;
+    const kind = this.roundKind === 'practice' ? '' : `${this.course.id}:${this.roundKind}`;
     const best = kind ? saveBest(kind, round.totalStrokes) : false;
     this.showScorecard({
       title: `Round complete — ${round.playerName}`,
@@ -733,7 +749,7 @@ export class Game {
       return;
     }
     this.pause.show(false);
-    this.scorecard.show(this.round, KESTREL_DUNES.name, (h) => Math.round(toYards(new HoleTerrainLength(h).length)), opts);
+    this.scorecard.show(this.round, this.course.name, (h) => Math.round(toYards(new HoleTerrainLength(h).length)), opts);
   }
 
   setPaused(p: boolean): void {
@@ -775,7 +791,7 @@ export class Game {
     const r = this.round;
     if (!r) return;
     const thru = r.played;
-    this.hud.setScore(`${r.playerName}  ${thru ? formatToPar(r.toPar) : 'E'}  ·  Thru ${thru}`);
+    this.hud.setPlayer(r.playerName, `${thru ? formatToPar(r.toPar) : 'E'}  thru ${thru}`);
   }
 
   private refreshHud(): void {
@@ -786,20 +802,22 @@ export class Game {
     if (c.isPutter) {
       const range = PUTT_RANGES[this.puttRangeIdx];
       const need = Math.round((toPin / range) * 100);
-      this.hud.setClub(c.name, `Range ${toFeet(range).toFixed(0)} ft (Z/X)`, `Flat-green power: ${need}%`);
+      this.hud.setClub(`Putter ${toFeet(range).toFixed(0)}ft`, `Flat-green power ${need}%`, 'Z / X: range');
     } else {
       const lie = SURFACES[this.lie].lie.power;
       const carry = this.clubCarry();
       this.hud.setClub(
-        c.name,
-        `Carry ${Math.round(this.dist(carry))} ${this.unit()}${lie < 1 ? ` (lie ${Math.round(lie * 100)}%)` : ''}`,
-        `Shape: ${SHAPE_LABEL[this.shape]}${this.settings.powerBoost ? ' · Power' : ''}`,
+        `${c.name} ${Math.round(this.dist(carry))}${this.settings.units === 'yards' ? 'y' : 'm'}`,
+        lie < 1 ? `Lie ${Math.round(lie * 100)}%` : '',
+        this.shape === 'normal' && !this.settings.powerBoost ? '' : `${SHAPE_LABEL[this.shape]}${this.settings.powerBoost ? ' · Power' : ''}`,
       );
     }
     const pinTxt = toPin < 20 && (this.lie === 'green' || this.lie === 'fringe') ? `${toFeet(toPin).toFixed(0)} ft` : `${Math.round(this.dist(toPin))} ${this.unit()}`;
     const elev = t.heightAt(t.cup.x, t.cup.z) - (this.ballPos.y - 0.021);
     const elevTxt = Math.abs(elev) < 0.3 ? 'Level' : `${elev > 0 ? '▲' : '▼'} ${Math.abs(elev / M_PER_FT).toFixed(0)} ft`;
-    this.hud.setShot(`To pin ${pinTxt}`, `Lie: ${SURFACES[this.lie].label}`, `Elevation ${elevTxt}`, `Shot ${this.phase === 'aiming' ? this.strokes + 1 : this.strokes}`);
+    const n = this.phase === 'aiming' ? this.strokes + 1 : this.strokes;
+    const ord = n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
+    this.hud.setShot(`${ord} Shot · ${pinTxt}`, `${SURFACES[this.lie].label} · ${elevTxt === 'Level' ? 'Level' : elevTxt}`);
   }
 
   private updateWindHud(): void {
@@ -911,7 +929,17 @@ export class Game {
       this.gs.focusShadows(this.phase === 'flight' ? this.ballPos : cams.lookTarget.clone().lerp(this.gs.camera.position, 0.5));
     }
 
-    if (this.round) {
+    if (this.round && t) {
+      const aiming = this.phase === 'aiming' || this.phase === 'swinging';
+      this.hud.minimap.draw(this.ballPos, aiming ? this.aimPoint : null);
+      // Club tag floats to the right of the golfer, as in the classic games.
+      const cam = this.gs.camera;
+      const d = dirFromYaw(this.aimYaw);
+      const p = this.ballPos.clone().add(new THREE.Vector3(-d.z * 1.3, 1.5, d.x * 1.3)).project(cam);
+      const onScreen = p.z < 1 && Math.abs(p.x) < 1 && Math.abs(p.y) < 1;
+      const w = this.gs.canvas.clientWidth;
+      const h = this.gs.canvas.clientHeight;
+      this.hud.placeClubTag(((p.x + 1) / 2) * w, ((1 - p.y) / 2) * h, aiming && onScreen && !this.overviewOn);
       this.updateWindHud();
       this.meterView.draw(this.meter, {
         mouse: this.settings.swingType === 'mouse' && this.phase !== 'swinging',

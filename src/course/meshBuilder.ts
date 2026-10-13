@@ -1,12 +1,16 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CUP_RADIUS } from '../physics/constants';
 import type { SurfaceType } from '../physics/surfaces';
+import { buildGallery } from '../render/Gallery';
 import { makeDetailTexture, makeWaterMaterial } from '../render/materials';
 import { clamp, smoothstep } from '../util/math';
 import { makeRng } from '../util/rng';
 import { GRID_STEP, type HoleTerrain } from './terrain';
 
-const BASE: Record<SurfaceType, THREE.Color> = {
+type Palette = Record<SurfaceType, THREE.Color>;
+
+const LINKS: Palette = {
   tee: new THREE.Color('#6aa844'),
   fairway: new THREE.Color('#62a23c'),
   fringe: new THREE.Color('#5aa63c'),
@@ -18,6 +22,22 @@ const BASE: Record<SurfaceType, THREE.Color> = {
   path: new THREE.Color('#b8ad96'),
   ob: new THREE.Color('#8f8a4e'),
 };
+
+/** Lush, watered parkland greens with a dark woodland floor under the trees. */
+const PARKLAND: Palette = {
+  tee: new THREE.Color('#6fb441'),
+  fairway: new THREE.Color('#69b03d'),
+  fringe: new THREE.Color('#62ad3e'),
+  green: new THREE.Color('#79c94f'),
+  rough: new THREE.Color('#4f8c2e'),
+  deepRough: new THREE.Color('#3e6a24'),
+  sand: new THREE.Color('#ece0bd'),
+  water: new THREE.Color('#3f5a46'),
+  path: new THREE.Color('#c9c4b8'),
+  ob: new THREE.Color('#3e6a24'),
+};
+
+const paletteFor = (t: HoleTerrain): Palette => (t.style === 'parkland' ? PARKLAND : LINKS);
 
 let detailTex: THREE.CanvasTexture | null = null;
 
@@ -39,6 +59,7 @@ export function buildHoleMeshes(t: HoleTerrain): HoleMeshes {
   for (const w of buildWater(t)) group.add(w);
   group.add(buildTrees(t));
   group.add(buildTeeMarkers(t));
+  group.add(buildGallery(t));
   const obStakes = buildObStakes(t);
   if (obStakes) group.add(obStakes);
   const { pin, flag, flagBaseY } = buildPin(t);
@@ -62,6 +83,7 @@ export function buildHoleMeshes(t: HoleTerrain): HoleMeshes {
 
 function colorFor(t: HoleTerrain, x: number, z: number, out: THREE.Color): THREE.Color {
   const surf = t.surfaceAt(x, z);
+  const BASE = paletteFor(t);
   out.copy(BASE[surf]);
   const n = t.noise.noise(x / 6 + 11, z / 6 - 4);
   switch (surf) {
@@ -84,6 +106,13 @@ function colorFor(t: HoleTerrain, x: number, z: number, out: THREE.Color): THREE
       break;
     case 'deepRough':
     case 'ob': {
+      if (t.style === 'parkland') {
+        // Woodland floor: mossy greens with brown leaf litter.
+        const patch = t.noise.fbm(x / 14, z / 14, 3);
+        out.lerp(new THREE.Color('#5a5230'), clamp(0.25 + patch * 0.7, 0, 0.6));
+        out.multiplyScalar(1 + n * 0.12);
+        break;
+      }
       // Fescue: golden with green patches.
       const patch = t.noise.fbm(x / 25, z / 25, 3);
       out.lerp(BASE.rough, clamp(0.45 + patch * 0.9, 0, 1));
@@ -92,6 +121,9 @@ function colorFor(t: HoleTerrain, x: number, z: number, out: THREE.Color): THREE
     }
     case 'sand':
       out.multiplyScalar(1 + n * 0.05);
+      break;
+    case 'path':
+      out.multiplyScalar(1 + n * 0.06);
       break;
     default:
       break;
@@ -167,7 +199,26 @@ function buildSurroundings(t: HoleTerrain): THREE.Group {
   const grass = new THREE.Color('#577f33');
   const duneSand = new THREE.Color('#d9c99a');
   const seaSide = 1; // sea lies off to the right (+x)
+  const parkland = t.style === 'parkland';
+  const canopyDark = new THREE.Color('#284d1d');
+  const canopyLight = new THREE.Color('#4a7a2e');
   for (let k = 0; k < pos.count; k++) {
+    if (parkland) {
+      const x = pos.getX(k);
+      const z = pos.getZ(k);
+      const ox = Math.max(t.minX - x, 0, x - t.maxX);
+      const oz = Math.max(t.minZ - z, 0, z - t.maxZ);
+      const out = Math.hypot(ox, oz);
+      // Wooded hills rolling away to the horizon.
+      const n = t.noise.fbm(x / 160 + 300, z / 160, 4);
+      let h = t.edgeHeight + 2 + (n * 22 + 12) * smoothstep(0, 400, out) + 8 * smoothstep(0, 60, out);
+      if (out < 1) h = t.edgeHeight - 1.2;
+      pos.setY(k, h);
+      const lumpy = t.noise.noise(x / 11, z / 11);
+      c.copy(canopyDark).lerp(canopyLight, clamp(0.45 + lumpy * 0.7 + n * 0.3, 0, 1));
+      colors.set([c.r, c.g, c.b], k * 3);
+      continue;
+    }
     const x = pos.getX(k);
     const z = pos.getZ(k);
     // Distance outside the playable patch.
@@ -192,6 +243,7 @@ function buildSurroundings(t: HoleTerrain): THREE.Group {
   land.receiveShadow = true;
   g.add(land);
 
+  if (parkland) return g;
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), makeWaterMaterial(new THREE.Color('#1d4e66'), new THREE.Color('#3b7f93')));
   sea.position.set(cx, -1.6, cz);
   sea.renderOrder = -1;
@@ -242,14 +294,79 @@ function buildWater(t: HoleTerrain): THREE.Mesh[] {
   return meshes;
 }
 
+/** Rounded deciduous canopy: a few merged blobs, darker underneath. Unit size: radius 1, height 1. */
+function canopyGeometry(detail: number): THREE.BufferGeometry {
+  const blobs: [number, number, number, number][] = [
+    [0, 0.55, 0, 0.58],
+    [0.42, 0.42, 0.12, 0.45],
+    [-0.4, 0.45, -0.1, 0.47],
+    [0.05, 0.78, -0.3, 0.42],
+    [-0.08, 0.5, 0.42, 0.44],
+  ];
+  const parts = blobs.map(([x, y, z, r]) => {
+    const g = new THREE.IcosahedronGeometry(1, detail);
+    g.scale(r * 1.15, r, r * 1.15).translate(x, y, z);
+    g.deleteAttribute('uv');
+    return g;
+  });
+  const geo = mergeGeometries(parts)!;
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const colors = new Float32Array(pos.count * 3);
+  for (let k = 0; k < pos.count; k++) {
+    const shade = 0.55 + 0.6 * clamp(pos.getY(k), 0, 1);
+    colors.set([shade, shade, shade], k * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
 function buildTrees(t: HoleTerrain): THREE.Group {
   const g = new THREE.Group();
-  const pines = t.obstacles.filter((o) => o.kind !== 'gorse');
+  const pines = t.obstacles.filter((o) => o.kind === 'pine');
+  const broadleaf = t.obstacles.filter((o) => o.kind === 'oak' || o.kind === 'birch');
   const gorse = t.obstacles.filter((o) => o.kind === 'gorse');
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   const rng = makeRng(t.spec.number * 17);
+
+  if (broadleaf.length) {
+    const trunkGeo = new THREE.CylinderGeometry(0.16, 0.3, 1, 6).translate(0, 0.5, 0);
+    const near = broadleaf.filter((o) => !o.deep);
+    const deep = broadleaf.filter((o) => o.deep);
+    const trunkMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, broadleaf.length);
+    const col = new THREE.Color();
+    broadleaf.forEach((o, i) => {
+      q.setFromAxisAngle(up, o.rot);
+      m4.compose(new THREE.Vector3(o.x, o.baseY - 0.2, o.z), q, new THREE.Vector3(o.kind === 'birch' ? 0.7 : 1.1, o.canopyBottom + 1.6, o.kind === 'birch' ? 0.7 : 1.1));
+      trunks.setMatrixAt(i, m4);
+      trunks.setColorAt(i, col.set(o.kind === 'birch' ? '#e6e1d6' : '#5a4330'));
+    });
+    trunks.castShadow = true;
+    g.add(trunks);
+    const canopyMat = new THREE.MeshLambertMaterial({ color: '#ffffff', vertexColors: true });
+    for (const [list, detail, shadows] of [
+      [near, 1, true],
+      [deep, 0, false],
+    ] as const) {
+      if (!list.length) continue;
+      const crowns = new THREE.InstancedMesh(canopyGeometry(detail), canopyMat, list.length);
+      list.forEach((o, i) => {
+        q.setFromAxisAngle(up, o.rot);
+        const h = o.height - o.canopyBottom + 0.6;
+        const r = o.kind === 'birch' ? o.radius * 0.8 : o.radius;
+        m4.compose(new THREE.Vector3(o.x, o.baseY + o.canopyBottom - 0.6, o.z), q, new THREE.Vector3(r, h, r));
+        crowns.setMatrixAt(i, m4);
+        if (o.kind === 'birch') col.setHSL(0.2 + rng() * 0.04, 0.5, 0.36 + rng() * 0.06);
+        else col.setHSL(0.24 + rng() * 0.07, 0.42 + rng() * 0.15, 0.24 + rng() * 0.08);
+        crowns.setColorAt(i, col);
+      });
+      crowns.castShadow = shadows;
+      crowns.receiveShadow = shadows;
+      g.add(crowns);
+    }
+  }
 
   if (pines.length) {
     const trunkGeo = new THREE.CylinderGeometry(0.12, 0.22, 1, 6).translate(0, 0.5, 0);

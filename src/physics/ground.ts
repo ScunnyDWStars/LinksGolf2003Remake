@@ -22,6 +22,8 @@ export interface GroundModel {
   /** False once the ball has left the playable patch (counts as out of bounds). */
   inBounds(x: number, z: number): boolean;
   obstacles: readonly Obstacle[];
+  /** Optional spatial lookup; falls back to scanning `obstacles`. */
+  obstaclesNear?(x: number, z: number): readonly Obstacle[];
   cup: { x: number; z: number };
 }
 

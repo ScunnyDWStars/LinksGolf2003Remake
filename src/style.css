@@ -76,92 +76,164 @@ body {
 
 .hud-tl {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  padding: 10px 14px;
+  top: 12px;
+  left: 12px;
+  padding: 0;
+  overflow: hidden;
   min-width: 250px;
-  max-width: calc(100vw - 170px);
+  max-width: calc(100vw - 260px);
+}
+
+.banner {
+  padding: 8px 14px 7px;
+  background: linear-gradient(90deg, rgba(214, 178, 94, 0.28), rgba(214, 178, 94, 0.04));
+  border-bottom: 1px solid var(--panel-edge);
+}
+
+.banner-course {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass);
 }
 
 .hole-title {
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 20px;
+  font-size: 21px;
   font-weight: bold;
+  font-style: italic;
   color: var(--cream);
+  line-height: 1.15;
 }
 
 .hole-info {
-  font-size: 14px;
-  color: var(--brass);
-  margin-top: 2px;
+  font-size: 13px;
+  opacity: 0.85;
 }
 
-.score-line {
-  margin-top: 6px;
+.player-card {
+  padding: 7px 14px 9px;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
+  font-weight: 700;
+}
+
+.player-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4fd36b;
+  box-shadow: 0 0 6px #4fd36b;
+}
+
+.player-name {
+  color: #9be7a9;
+}
+
+.player-score {
+  margin-left: auto;
+  color: var(--cream);
   font-weight: 600;
+  font-size: 13px;
+}
+
+.shot-line {
+  margin-top: 3px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffd27a;
+}
+
+.lie-line {
+  font-size: 13px;
+  opacity: 0.88;
 }
 
 .hud-tr {
   position: absolute;
-  top: 14px;
-  right: 14px;
-  padding: 6px;
-  text-align: center;
-  width: 118px;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.minimap {
+  pointer-events: auto !important;
+  border: 2px solid rgba(214, 178, 94, 0.7);
+  border-radius: 4px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  background: #20391b;
+  cursor: crosshair;
+  line-height: 0;
+}
+
+.minimap-canvas {
+  width: 200px;
+  height: 260px;
+  display: block;
+}
+
+.wind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 4px;
 }
 
 .wind-canvas {
-  width: 92px;
-  height: 92px;
+  width: 48px;
+  height: 48px;
   display: block;
-  margin: 0 auto;
 }
 
 .wind-text {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.club-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 5px 11px 6px;
+  background: linear-gradient(180deg, rgba(40, 52, 64, 0.9), rgba(16, 22, 28, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 7px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.tag-club {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.tag-info,
+.tag-shape {
+  font-size: 12px;
+  color: #ffd27a;
+}
+
+.tag-info:empty,
+.tag-shape:empty {
+  display: none;
 }
 
 .hud-bottom {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 12px;
+  bottom: 8px;
   display: flex;
   justify-content: center;
-  align-items: flex-end;
-  gap: 14px;
-  padding: 0 14px;
-}
-
-.club-panel,
-.shot-panel {
-  padding: 10px 14px;
-  width: 230px;
-  min-height: 112px;
-}
-
-.club-name {
-  font-family: Georgia, serif;
-  font-size: 24px;
-  font-weight: bold;
-}
-
-.club-info,
-.club-shape,
-.lie,
-.elev,
-.shot-num {
-  font-size: 14px;
-  opacity: 0.92;
-  margin-top: 2px;
-}
-
-.to-pin {
-  font-family: Georgia, serif;
-  font-size: 22px;
-  font-weight: bold;
 }
 
 .meter-slot {
@@ -171,20 +243,21 @@ body {
 
 .meter {
   position: relative;
-  width: 300px;
+  width: 260px;
 }
 
 .meter-canvas {
-  width: 300px;
-  height: 173px;
+  width: 260px;
+  height: 150px;
   display: block;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
 }
 
 .meter-label {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 2px;
+  bottom: 0;
   text-align: center;
   font-size: 13px;
   font-weight: 600;
@@ -193,33 +266,38 @@ body {
 
 .hud-buttons {
   position: absolute;
-  right: 14px;
-  top: 150px;
-  max-height: calc(100vh - 290px);
+  right: 10px;
+  bottom: 10px;
+  max-width: min(330px, 30vw);
   display: flex;
-  flex-direction: column;
-  flex-wrap: wrap-reverse;
-  align-content: flex-start;
-  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
   pointer-events: auto !important;
 }
 
 .hud-btn {
   pointer-events: auto;
-  background: var(--panel);
+  background: linear-gradient(180deg, rgba(48, 62, 74, 0.88), rgba(18, 26, 32, 0.88));
   color: var(--cream);
-  border: 1px solid var(--panel-edge);
-  border-radius: 8px;
-  padding: 7px 10px;
-  font-size: 13px;
-  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
-  min-width: 64px;
+  min-width: 44px;
 }
 
 .hud-btn:hover {
   border-color: var(--brass);
   color: #fff;
+}
+
+.hud-btn.menu-btn {
+  background: linear-gradient(180deg, #e2c272, #b8913d);
+  color: var(--ink);
+  border-color: #f1d998;
 }
 
 .toast {
@@ -267,8 +345,8 @@ body {
 
 .help {
   position: absolute;
-  left: 14px;
-  top: 140px;
+  left: 12px;
+  top: 190px;
   background: var(--panel);
   border: 1px solid var(--panel-edge);
   border-radius: 10px;
@@ -283,7 +361,8 @@ body {
 
 .hud.cinematic .hud-bottom,
 .hud.cinematic .hud-buttons,
-.hud.cinematic .hud-tr {
+.hud.cinematic .hud-tr,
+.hud.cinematic .club-tag {
   display: none;
 }
 
@@ -592,59 +671,57 @@ table.sc tr.player td {
   .title {
     font-size: 34px;
   }
-  .hud-bottom {
-    gap: 6px;
-    padding: 0 6px;
-    bottom: 6px;
-  }
-  .club-panel,
-  .shot-panel {
-    width: auto;
-    flex: 1;
-    min-height: 0;
-    padding: 6px 8px;
-  }
-  .club-name,
-  .to-pin {
-    font-size: 17px;
-  }
-  .club-info,
-  .club-shape,
-  .lie,
-  .elev,
-  .shot-num {
-    font-size: 11px;
-  }
   .meter,
   .meter-canvas {
-    width: 180px;
+    width: 190px;
   }
   .meter-canvas {
-    height: 104px;
+    height: 110px;
   }
   .hud-tl {
     min-width: 0;
-    padding: 6px 10px;
+    max-width: calc(100vw - 150px);
+  }
+  .banner {
+    padding: 5px 9px;
   }
   .hole-title {
-    font-size: 15px;
+    font-size: 16px;
   }
-  .hud-tr {
-    width: 84px;
+  .hole-info,
+  .banner-course {
+    display: none;
+  }
+  .player-card {
+    padding: 5px 9px 6px;
+  }
+  .player-row,
+  .shot-line {
+    font-size: 13px;
+  }
+  .lie-line {
+    font-size: 11px;
+  }
+  .minimap-canvas {
+    width: 120px;
+    height: 156px;
   }
   .wind-canvas {
-    width: 64px;
-    height: 64px;
+    width: 36px;
+    height: 36px;
+  }
+  .wind-text {
+    font-size: 12px;
   }
   .hud-buttons {
-    top: 108px;
     right: 6px;
+    bottom: 6px;
+    max-width: 150px;
     gap: 4px;
-    max-height: calc(100vh - 230px);
   }
   .hud-btn {
-    min-width: 48px;
-    padding: 6px 6px;
+    min-width: 40px;
+    padding: 5px 5px;
     font-size: 11px;
   }
   .toast {

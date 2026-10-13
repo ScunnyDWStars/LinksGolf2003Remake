@@ -25,7 +25,7 @@ export interface TreeCluster {
   at: P;
   radius: number;
   count: number;
-  kind: 'pine' | 'gorse' | 'birch';
+  kind: 'pine' | 'gorse' | 'birch' | 'oak';
 }
 
 export interface GreenSpec extends EllipseSpec {
@@ -55,11 +55,20 @@ export interface HoleSpec {
   elevation: { tee: number; green: number; dunes: number };
   /** Out-of-bounds stakes, lateral metres from the centerline. Omit a side for no OB there. */
   ob?: { left?: number; right?: number };
+  /** Parkland: which side of the fairway the cart path runs (+1 right, -1 left). Default right. */
+  pathSide?: 1 | -1;
+  /** Parkland: tree-lined corridor. Depth of the woods and trees per 100 m². */
+  forest?: { depth?: number; density?: number; gap?: number };
   /** Extra mound on the line of play (blind shots), as an ellipse with a height. */
   mounds?: readonly (EllipseSpec & { height: number })[];
 }
 
+/** Links: open dunes, fescue and the sea. Parkland: rolling hills, tree-lined fairways and cart paths. */
+export type CourseStyle = 'links' | 'parkland';
+
 export interface CourseSpec {
+  id: string;
+  style: CourseStyle;
   name: string;
   location: string;
   holes: readonly HoleSpec[];

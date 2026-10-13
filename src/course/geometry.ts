@@ -19,7 +19,11 @@ export class Polyline {
   readonly cum: number[] = [0];
   readonly length: number;
 
-  constructor(points: readonly P[] | Vec2[]) {
+  /** `openEnds`: extend the first and last segments past the ends (true for a hole's line of play). */
+  constructor(
+    points: readonly P[] | Vec2[],
+    private readonly openEnds = true,
+  ) {
     this.pts = (points as (P | Vec2)[]).map((p) => (Array.isArray(p) ? toWorld(p as P) : (p as Vec2)));
     for (let i = 1; i < this.pts.length; i++) {
       const a = this.pts[i - 1];
@@ -39,8 +43,8 @@ export class Polyline {
       const len2 = dx * dx + dz * dz || 1;
       let t = ((x - a.x) * dx + (z - a.z) * dz) / len2;
       // Let the ends extend so points beyond the tee/green still get a sensible lateral.
-      if (i > 1) t = Math.max(t, 0);
-      if (i < this.pts.length - 1) t = Math.min(t, 1);
+      if (i > 1 || !this.openEnds) t = Math.max(t, 0);
+      if (i < this.pts.length - 1 || !this.openEnds) t = Math.min(t, 1);
       const px = a.x + dx * t;
       const pz = a.z + dz * t;
       const d = Math.hypot(x - px, z - pz);

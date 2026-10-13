@@ -10,8 +10,17 @@ real ball physics, wind, and a putting grid. It needs no install and no plugins;
 
 ## Features
 
-- **Kestrel Dunes Golf Links**: an original 18-hole, par-72 seaside links (6,871 yds). It has dunes, pot
-  bunkers, burns crossing the fairway, ponds, gorse, out-of-bounds stakes and blind tee shots.
+- **Two original 18-hole, par-72 courses**:
+  - **Cedar Ridge Country Club**: a parkland course over rolling hills. Fairways are lined with dense woods,
+    and it has creeks, ponds, cart paths and elevated tees.
+  - **Kestrel Dunes Golf Links**: a seaside links (6,871 yds) with dunes, pot bunkers, burns crossing the
+    fairway, gorse, out-of-bounds stakes and blind tee shots.
+- **The classic presentation**:
+  - a broadcast camera behind and above the golfer
+  - a hole banner and player card ("1st Shot · 389 yds")
+  - a top-down hole map you can click to aim
+  - a floating club tag beside the golfer ("Driver 252y")
+  - spectators lining the tee and ringing the green
 - **Classic 3-click swing**:
   1. Click to start the backswing.
   2. Click again to set power. You can overswing past 100%.
@@ -46,7 +55,7 @@ real ball physics, wind, and a putting grid. It needs no install and no plugins;
 | Action | Keys / mouse |
 | --- | --- |
 | Swing (3 clicks) | `Space` or left-click |
-| Aim | `←` `→` (hold `Shift` for fine), or right-click the ground |
+| Aim | `←` `→` (hold `Shift` for fine), right-click the ground, or click the hole map |
 | Change club | `↑` `↓` or `Q` `E` |
 | Putter range | `Z` `X` |
 | Shot shape | `F` |
@@ -79,10 +88,10 @@ A push to `main` runs CI and publishes `dist/` to GitHub Pages. To turn this on,
 src/
   physics/   ball flight (RK4, drag, lift, wind), bounce and roll, cup capture, shot simulator, surfaces table
   swing/     clubs, swing meter + mouse swing, shot shaping / lie effects, power→distance calibration
-  course/    hole data types, the Kestrel Dunes course, terrain heightfield + surface lookup, mesh builder
-  render/    scene, sky & water shaders, golfer, ball/trail, aim marker, putting grid, camera director
+  course/    hole data types, Cedar Ridge + Kestrel Dunes, terrain heightfield + surface lookup, mesh builder
+  render/    scene, sky & water shaders, golfer, gallery, ball/trail, aim marker, putting grid, camera director
   game/      game controller (state machine), rules, round scoring, settings persistence
-  ui/        HUD, swing meter view, scorecard, menus
+  ui/        HUD, hole map, swing meter view, scorecard, menus
   audio/     WebAudio sound synthesis
   input/     keyboard, mouse and touch
 tests/       Vitest unit tests

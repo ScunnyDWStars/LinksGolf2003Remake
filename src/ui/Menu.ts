@@ -52,15 +52,23 @@ export function buildSettingsForm(parent: HTMLElement, s: Settings, onChange: ()
 
 export class MainMenu {
   readonly root: HTMLDivElement;
-  private readonly best: HTMLDivElement;
+  private best: HTMLDivElement | null = null;
 
-  constructor(parent: HTMLElement, course: CourseSpec, settings: Settings, onSettings: () => void, onStart: (o: StartOptions) => void) {
+  constructor(
+    parent: HTMLElement,
+    private readonly courses: readonly CourseSpec[],
+    private readonly settings: Settings,
+    onSettings: () => void,
+    onStart: (o: StartOptions) => void,
+    onCourse: () => void,
+  ) {
     this.root = el('div', 'overlay menu', undefined, parent);
     this.root.addEventListener('pointerdown', (e) => e.stopPropagation());
     const card = el('div', 'card menu-card', undefined, this.root);
     const head = el('div', 'menu-head', undefined, card);
     el('div', 'title', 'Greenside Classic', head);
-    el('div', 'subtitle', `${course.name} · Par ${course.holes.reduce((s, h) => s + h.par, 0)}`, head);
+    const subtitle = el('div', 'subtitle', '', head);
+    const course = () => courses.find((c) => c.id === settings.courseId) ?? courses[0];
 
     const cols = el('div', 'menu-cols', undefined, card);
     const left = el('div', 'menu-col', undefined, cols);
@@ -73,6 +81,20 @@ export class MainMenu {
       onSettings();
     });
 
+    el('h3', '', 'Course', left);
+    const courseSeg = el('div', 'seg', undefined, left);
+    const courseButtons = courses.map((c) => {
+      const b = el('button', 'seg-btn', c.name.replace(/ (Golf Links|Country Club)$/, ''), courseSeg);
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        settings.courseId = c.id;
+        refreshCourse();
+        onSettings();
+        onCourse();
+      });
+      return b;
+    });
+
     el('h3', '', 'Round', left);
     const kinds: { kind: RoundKind; label: string }[] = [
       { kind: '18', label: '18 Holes' },
@@ -83,10 +105,17 @@ export class MainMenu {
     let chosen: RoundKind = '18';
     const seg = el('div', 'seg wrap', undefined, left);
     const holeSel = el('select', 'hole-select hidden', undefined, left);
-    for (const h of course.holes) {
-      const o = el('option', '', `${h.number}. ${h.name} (Par ${h.par})`, holeSel);
-      o.value = String(h.number);
-    }
+    const refreshCourse = () => {
+      const c = course();
+      subtitle.textContent = `${c.name} · Par ${c.holes.reduce((s, h) => s + h.par, 0)}`;
+      courseButtons.forEach((b, i) => b.classList.toggle('on', courses[i].id === c.id));
+      holeSel.innerHTML = '';
+      for (const h of c.holes) {
+        const o = el('option', '', `${h.number}. ${h.name} (Par ${h.par})`, holeSel);
+        o.value = String(h.number);
+      }
+      this.refreshBest();
+    };
     const kindButtons = kinds.map((k) => {
       const b = el('button', 'seg-btn', k.label, seg);
       b.type = 'button';
@@ -103,6 +132,7 @@ export class MainMenu {
     start.dataset.testid = 'tee-off';
     start.addEventListener('click', () => onStart({ kind: chosen, practiceHole: Number(holeSel.value) || 1 }));
     this.best = el('div', 'best', '', left);
+    void this.courses;
 
     el('h3', '', 'How to play', left);
     const how = el('div', 'how', undefined, left);
@@ -114,15 +144,17 @@ export class MainMenu {
     const right = el('div', 'menu-col', undefined, cols);
     el('h3', '', 'Options', right);
     buildSettingsForm(right, settings, onSettings);
-    this.refreshBest();
+    refreshCourse();
   }
 
   refreshBest(): void {
+    if (!this.best) return;
     const b = loadBest();
+    const id = this.settings.courseId;
     const parts = [
-      b['18'] !== undefined ? `18 holes: ${b['18']}` : '',
-      b.front !== undefined ? `Front 9: ${b.front}` : '',
-      b.back !== undefined ? `Back 9: ${b.back}` : '',
+      b[`${id}:18`] !== undefined ? `18 holes: ${b[`${id}:18`]}` : '',
+      b[`${id}:front`] !== undefined ? `Front 9: ${b[`${id}:front`]}` : '',
+      b[`${id}:back`] !== undefined ? `Back 9: ${b[`${id}:back`]}` : '',
     ].filter(Boolean);
     this.best.textContent = parts.length ? `Best — ${parts.join(' · ')}` : '';
   }

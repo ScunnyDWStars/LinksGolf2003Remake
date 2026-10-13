@@ -6,7 +6,7 @@ import { clamp, lerp, smoothstep, type Vec2 } from '../util/math';
 import { Noise2D } from '../util/noise';
 import { makeRng } from '../util/rng';
 import { Blob, Polyline, toWorld } from './geometry';
-import type { HoleSpec, TreeCluster } from './types';
+import type { CourseStyle, HoleSpec, TreeCluster } from './types';
 
 export const GRID_STEP = 1; // metres between height samples
 const MARGIN = 90; // metres of land around the hole's features
@@ -31,6 +31,8 @@ export interface Tree extends Obstacle {
   kind: TreeCluster['kind'];
   /** Visual-only rotation/scale jitter. */
   rot: number;
+  /** Deep in the woods: rendered with a cheaper mesh and no shadow. */
+  deep?: boolean;
 }
 
 /**
@@ -51,6 +53,10 @@ export class HoleTerrain implements GroundModel {
   readonly teeDir: Vec2;
   readonly cup: { x: number; z: number };
   readonly obstacles: Tree[] = [];
+  readonly style: CourseStyle;
+  /** Parkland cart path, if any. */
+  readonly path: Polyline | null = null;
+  private obstacleGrid = new Map<number, Tree[]>();
 
   readonly minX: number;
   readonly maxX: number;
@@ -61,8 +67,9 @@ export class HoleTerrain implements GroundModel {
   readonly heights: Float32Array;
   readonly edgeHeight: number;
 
-  constructor(spec: HoleSpec, seed = 1000) {
+  constructor(spec: HoleSpec, style: CourseStyle = 'links', seed = 1000) {
     this.spec = spec;
+    this.style = style;
     this.noise = new Noise2D(seed + spec.number * 101);
     this.centerline = new Polyline(spec.centerline);
     this.green = new Blob(spec.green, this.noise, 0.09, 1);
@@ -73,6 +80,7 @@ export class HoleTerrain implements GroundModel {
     const g = toWorld(spec.green.at);
     this.cup = { x: g.x + spec.pin[0], z: g.z - spec.pin[1] };
     this.edgeHeight = Math.min(spec.elevation.tee, spec.elevation.green) - 0.5;
+    if (style === 'parkland') this.path = this.makeCartPath();
 
     // Bounds from every feature.
     const xs: number[] = [];
@@ -110,7 +118,7 @@ export class HoleTerrain implements GroundModel {
         }
         this.ponds.push({ blob, level: lo - 0.35 });
       } else {
-        const line = new Polyline(w.points);
+        const line = new Polyline(w.points, false);
         const levels: number[] = [];
         for (let s = 0; s <= line.length + BURN_STEP; s += BURN_STEP) {
           const p = line.pointAt(s);
@@ -180,12 +188,19 @@ export class HoleTerrain implements GroundModel {
     let h = lerp(sp.elevation.tee, sp.elevation.green, smoothstep(0, 1, t));
     const hw = this.fairwayHalfWidth(pr.s, pr.lateral);
 
-    const roll = 0.8 * this.noise.fbm(x / 60, z / 60, 3);
     const duneMask = smoothstep(hw - 2, hw + 28, pr.dist);
     const far = smoothstep(hw + 30, hw + 130, pr.dist);
-    const ridge = 1 - Math.abs(this.noise.fbm(x / 42 + 100, z / 42 - 50, 4));
-    const dunes = sp.elevation.dunes * (ridge * ridge * 1.2 - 0.25) * (1 + far * 0.8);
-    h += roll * (1 - duneMask * 0.4) + dunes * duneMask;
+    if (this.style === 'parkland') {
+      // Broad rolling hills that carry right through the fairways, with the land rising into the woods.
+      const hills = sp.elevation.dunes * this.noise.fbm(x / 120 + 40, z / 120 - 20, 3);
+      const swales = 0.9 * this.noise.fbm(x / 45, z / 45, 3);
+      h += hills + swales * (1 - duneMask * 0.3) + duneMask * (1.5 + far * 4) * (0.6 + 0.4 * this.noise.fbm(x / 70, z / 70, 2));
+    } else {
+      const roll = 0.8 * this.noise.fbm(x / 60, z / 60, 3);
+      const ridge = 1 - Math.abs(this.noise.fbm(x / 42 + 100, z / 42 - 50, 4));
+      const dunes = sp.elevation.dunes * (ridge * ridge * 1.2 - 0.25) * (1 + far * 0.8);
+      h += roll * (1 - duneMask * 0.4) + dunes * duneMask;
+    }
 
     for (const m of this.mounds) {
       const q = m.blob.field(x, z);
@@ -290,6 +305,7 @@ export class HoleTerrain implements GroundModel {
     const gr = Math.max(this.spec.green.rx, this.spec.green.rz);
     if (gq < 1 + FRINGE / gr) return 'fringe';
     if (this.teeField(x, z) < 1) return 'tee';
+    if (this.path && this.path.project(x, z).dist < 1.3) return 'path';
     const hw = this.fairwayHalfWidth(pr.s, pr.lateral);
     if (pr.dist < hw && pr.s >= this.spec.fairwayStart && pr.s <= this.centerline.length + 4) return 'fairway';
     // Short approach apron in front of the green.
@@ -328,8 +344,99 @@ export class HoleTerrain implements GroundModel {
     return this.centerline.pointAt(s);
   }
 
+  /** Cart path: from beside the tee, down one side of the hole, to the side of the green. */
+  private makeCartPath(): Polyline {
+    const side = this.spec.pathSide ?? 1;
+    const off = this.spec.fairwayWidth / 2 + 13;
+    const pts: Vec2[] = [];
+    const L = this.centerline.length;
+    const gr = Math.max(this.spec.green.rx, this.spec.green.rz);
+    for (let s = 0; s <= L + 6; s += 10) {
+      const p = this.centerline.pointAt(Math.max(0, s));
+      const d = this.centerline.dirAt(Math.max(0, s));
+      // Swing wider past the green so the path stays clear of it.
+      const o = s > L - gr - 20 ? Math.max(off, gr + 14) : off;
+      const wiggle = 4 * this.noise.noise(s / 60, 3.3);
+      pts.push({ x: p.x - d.z * (o + wiggle) * side, z: p.z + d.x * (o + wiggle) * side });
+    }
+    // Start the path level with the back of the tee box.
+    const t0 = pts[0];
+    pts.unshift({ x: t0.x - this.teeDir.x * 14, z: t0.z - this.teeDir.z * 14 });
+    return new Polyline(pts, false);
+  }
+
+  /** Obstacles near a point (3x3 cells of 20 m). */
+  obstaclesNear(x: number, z: number): readonly Tree[] {
+    const cx = Math.floor(x / 20);
+    const cz = Math.floor(z / 20);
+    const out: Tree[] = [];
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        const cell = this.obstacleGrid.get((cx + i) * 73856093 ^ (cz + j) * 19349663);
+        if (cell) for (const t of cell) out.push(t);
+      }
+    }
+    return out;
+  }
+
+  private addTree(t: Tree): void {
+    this.obstacles.push(t);
+    const key = Math.floor(t.x / 20) * 73856093 ^ Math.floor(t.z / 20) * 19349663;
+    let cell = this.obstacleGrid.get(key);
+    if (!cell) this.obstacleGrid.set(key, (cell = []));
+    cell.push(t);
+  }
+
+  /** Line the hole with woods (parkland). */
+  private plantForest(rng: () => number): void {
+    const f = this.spec.forest ?? {};
+    const gap = f.gap ?? 6;
+    const depth = f.depth ?? 160;
+    const density = f.density ?? 1.4; // trees per 100 m²
+    const cell = Math.sqrt(100 / density);
+    for (let z = this.minZ + 6; z < this.maxZ - 6; z += cell) {
+      for (let x = this.minX + 6; x < this.maxX - 6; x += cell) {
+        const px = x + (rng() - 0.5) * cell * 0.9;
+        const pz = z + (rng() - 0.5) * cell * 0.9;
+        const pr = this.centerline.project(px, pz);
+        const hw = this.fairwayHalfWidth(pr.s, pr.lateral) + ROUGH_BAND + gap;
+        const into = pr.dist - hw;
+        if (into < 0 || into > depth + 30 * this.noise.noise(px / 50, pz / 50)) continue;
+        // Thin out the edge so the tree line is ragged rather than a wall.
+        if (into < 8 && rng() > 0.45 + into * 0.07) continue;
+        const surf = this.surfaceAt(px, pz);
+        if (surf !== 'deepRough' && surf !== 'rough') continue;
+        if (this.path && this.path.project(px, pz).dist < 4) continue;
+        if (this.green.field(px, pz) < 2.2 || this.teeField(px, pz) < 2.5) continue;
+        if (this.bunkers.some((b) => b.blob.field(px, pz) < 1.5)) continue;
+        if (this.ponds.some((p) => p.blob.field(px, pz) < 1.3)) continue;
+        if ((this.burnInfo(px, pz)?.q ?? 9) < 2.5) continue;
+        const r = rng();
+        const kind: Tree['kind'] = r < 0.68 ? 'oak' : r < 0.9 ? 'pine' : 'birch';
+        const tree = this.makeTree(px, pz, kind, rng);
+        tree.deep = into > 30;
+        this.addTree(tree);
+      }
+    }
+  }
+
+  private makeTree(x: number, z: number, kind: Tree['kind'], rng: () => number): Tree {
+    const baseY = this.heightAt(x, z);
+    switch (kind) {
+      case 'gorse':
+        return { x, z, baseY, radius: 1.0 + rng() * 0.9, canopyBottom: 0, height: 0.9 + rng() * 0.8, kind, rot: rng() * 6.28 };
+      case 'oak':
+        return { x, z, baseY, radius: 3.6 + rng() * 2.4, canopyBottom: 2.6 + rng(), height: 11 + rng() * 7, kind, rot: rng() * 6.28 };
+      case 'birch':
+        return { x, z, baseY, radius: 2.2 + rng(), canopyBottom: 3, height: 10 + rng() * 5, kind, rot: rng() * 6.28 };
+      default:
+        return { x, z, baseY, radius: 2.4 + rng() * 1.3, canopyBottom: 1.8, height: 9 + rng() * 9, kind, rot: rng() * 6.28 };
+    }
+  }
+
   private placeTrees(): void {
     const rng = makeRng(7000 + this.spec.number * 31);
+    if (this.style === 'parkland') this.plantForest(rng);
     for (const c of this.spec.trees) {
       const center = toWorld(c.at);
       let placed = 0;
@@ -343,14 +450,8 @@ export class HoleTerrain implements GroundModel {
         // Keep a clear corridor around the fairway.
         const pr = this.centerline.project(x, z);
         if (pr.dist < this.spec.fairwayWidth / 2 + 3) continue;
-        const baseY = this.heightAt(x, z);
-        if (c.kind === 'gorse') {
-          const radius = 1.0 + rng() * 0.9;
-          this.obstacles.push({ x, z, baseY, radius, canopyBottom: 0, height: 0.9 + rng() * 0.8, kind: c.kind, rot: rng() * 6.28 });
-        } else {
-          const height = 7 + rng() * 6;
-          this.obstacles.push({ x, z, baseY, radius: 2.2 + rng() * 1.2, canopyBottom: 1.8, height, kind: c.kind, rot: rng() * 6.28 });
-        }
+        if (this.path && this.path.project(x, z).dist < 3) continue;
+        this.addTree(this.makeTree(x, z, c.kind, rng));
         placed++;
       }
     }

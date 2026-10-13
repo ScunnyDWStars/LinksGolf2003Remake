@@ -414,6 +414,8 @@ const holes: HoleSpec[] = [
 ];
 
 export const KESTREL_DUNES: CourseSpec = {
+  id: 'kestrel',
+  style: 'links',
   name: 'Kestrel Dunes Golf Links',
   location: 'A windswept stretch of coastline',
   holes,
