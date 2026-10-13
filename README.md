@@ -10,6 +10,10 @@ real ball physics, wind, and a putting grid. It needs no install and no plugins;
 
 ## Features
 
+- **Real courses** from OpenStreetMap and public elevation data, the same ones as BackyardGolf:
+  **Romanby Golf Club** (Northallerton), **the Old Course at St Andrews** and **Augusta National**.
+  They have real greens, bunkers, water, woods and yardages, drawn in this game's style. More can be added
+  (see "Adding a real course" below).
 - **Two original 18-hole, par-72 courses**:
   - **Cedar Ridge Country Club**: a parkland course over rolling hills. Fairways are lined with dense woods,
     and it has creeks, ponds, cart paths and elevated tees.
@@ -82,18 +86,38 @@ npm run e2e        # Playwright smoke test: tees off and plays a full hole in Ch
 A push to `main` runs CI and publishes `dist/` to GitHub Pages. To turn this on, go to
 *Settings → Pages → Source* and choose **GitHub Actions**.
 
+## Adding a real course
+
+Many courses are already traced in OpenStreetMap: fairways, greens, bunkers, water, tees, and
+`golf=hole` lines with par. Baking that data together with public elevation (AWS Terrain Tiles) gives
+every hole of the course:
+
+```bash
+npx tsx scripts/course-request.ts "Old Course, St Andrews" 56.348 -2.811
+# Open the printed overpass-turbo link, Export → "raw OSM data", save it as data/<id>-osm.json, then:
+npx tsx scripts/bake-course.ts data/<id>-osm.json public/courses/<id>.json --course "Old Course"
+npx tsx scripts/catalog.ts        # refresh the in-game course list
+```
+
+`--course` picks one course when several share the land. The bake prints par, yardage and any holes
+missing from the map. Add the course's place name, and `"style": "links"` or `"parkland"` for the look,
+to `pipeline/courses/catalog-meta.json` before running the catalog script. Course data from OpenStreetMap
+is © OpenStreetMap contributors under the ODbL; the game shows the credit whenever a real course is played.
+
 ## Code layout
 
 ```
 src/
   physics/   ball flight (RK4, drag, lift, wind), bounce and roll, cup capture, shot simulator, surfaces table
   swing/     clubs, swing meter + mouse swing, shot shaping / lie effects, power→distance calibration
-  course/    hole data types, Cedar Ridge + Kestrel Dunes, terrain heightfield + surface lookup, mesh builder
+  course/    shared hole interface, Cedar Ridge + Kestrel Dunes, authored and map-based terrain, mesh builder
+  mapcourse/ BackyardGolf course format and the OpenStreetMap course baker
   render/    scene, sky & water shaders, golfer, gallery, ball/trail, aim marker, putting grid, camera director
   game/      game controller (state machine), rules, round scoring, settings persistence
   ui/        HUD, hole map, swing meter view, scorecard, menus
   audio/     WebAudio sound synthesis
   input/     keyboard, mouse and touch
+scripts/     course tools: fetch/bake OpenStreetMap courses, refresh the course list
 tests/       Vitest unit tests
 e2e/         Playwright smoke test
 ```

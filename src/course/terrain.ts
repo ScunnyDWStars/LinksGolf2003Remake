@@ -1,14 +1,12 @@
-import { Vector3 } from 'three';
-import { BALL_RADIUS } from '../physics/constants';
-import type { GroundModel, Obstacle } from '../physics/ground';
 import type { SurfaceType } from '../physics/surfaces';
-import { clamp, lerp, smoothstep, type Vec2 } from '../util/math';
+import { clamp, lerp, smoothstep, toYards, type Vec2 } from '../util/math';
 import { Noise2D } from '../util/noise';
 import { makeRng } from '../util/rng';
 import { Blob, Polyline, toWorld } from './geometry';
-import type { CourseStyle, HoleSpec, TreeCluster } from './types';
+import { PlayableHole, type HoleInfo, type Tree, type WaterSurface } from './hole';
+import type { CourseStyle, HoleSpec } from './types';
 
-export const GRID_STEP = 1; // metres between height samples
+export { GRID_STEP, type Tree } from './hole';
 const MARGIN = 90; // metres of land around the hole's features
 const EDGE_FADE = 45;
 const ROUGH_BAND = 11; // first cut beyond the fairway edge
@@ -27,21 +25,24 @@ export interface Burn {
 }
 const BURN_STEP = 4;
 
-export interface Tree extends Obstacle {
-  kind: TreeCluster['kind'];
-  /** Visual-only rotation/scale jitter. */
-  rot: number;
-  /** Deep in the woods: rendered with a cheaper mesh and no shadow. */
-  deep?: boolean;
+/** Hole info for an authored hole; yards measured along its centerline. */
+export function holeInfoFor(spec: HoleSpec): HoleInfo {
+  let L = 0;
+  for (let i = 1; i < spec.centerline.length; i++) {
+    const a = spec.centerline[i - 1];
+    const b = spec.centerline[i];
+    L += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return { number: spec.number, name: spec.name, par: spec.par, handicap: spec.handicap, yards: Math.round(toYards(L)) };
 }
 
 /**
- * Terrain for one hole: a heightfield on a regular grid, plus analytic surface classification.
- * Heights between grid samples use the same triangle split as the rendered mesh so the ball sits exactly
- * on what you see.
+ * Terrain for one authored hole: a heightfield on a regular grid, plus analytic surface classification.
  */
-export class HoleTerrain implements GroundModel {
+export class HoleTerrain extends PlayableHole {
   readonly spec: HoleSpec;
+  readonly info: HoleInfo;
+  readonly corridorWidth: number;
   readonly noise: Noise2D;
   readonly centerline: Polyline;
   readonly green: Blob;
@@ -52,23 +53,15 @@ export class HoleTerrain implements GroundModel {
   readonly tee: Vec2;
   readonly teeDir: Vec2;
   readonly cup: { x: number; z: number };
-  readonly obstacles: Tree[] = [];
   readonly style: CourseStyle;
   /** Parkland cart path, if any. */
   readonly path: Polyline | null = null;
-  private obstacleGrid = new Map<number, Tree[]>();
-
-  readonly minX: number;
-  readonly maxX: number;
-  readonly minZ: number;
-  readonly maxZ: number;
-  readonly nx: number;
-  readonly nz: number;
-  readonly heights: Float32Array;
-  readonly edgeHeight: number;
 
   constructor(spec: HoleSpec, style: CourseStyle = 'links', seed = 1000) {
+    super();
     this.spec = spec;
+    this.info = holeInfoFor(spec);
+    this.corridorWidth = spec.fairwayWidth;
     this.style = style;
     this.noise = new Noise2D(seed + spec.number * 101);
     this.centerline = new Polyline(spec.centerline);
@@ -101,8 +94,6 @@ export class HoleTerrain implements GroundModel {
     this.maxX = Math.ceil(Math.max(...xs) + MARGIN);
     this.minZ = Math.floor(Math.min(...zs) - MARGIN);
     this.maxZ = Math.ceil(Math.max(...zs) + MARGIN);
-    this.nx = Math.round((this.maxX - this.minX) / GRID_STEP) + 1;
-    this.nz = Math.round((this.maxZ - this.minZ) / GRID_STEP) + 1;
 
     // Water bodies need the dry landform to pick their levels.
     spec.water.forEach((w, i) => {
@@ -132,23 +123,12 @@ export class HoleTerrain implements GroundModel {
       }
     });
 
-    this.heights = new Float32Array(this.nx * this.nz);
-    for (let j = 0; j < this.nz; j++) {
-      const z = this.minZ + j * GRID_STEP;
-      for (let i = 0; i < this.nx; i++) {
-        this.heights[j * this.nx + i] = this.fullHeight(this.minX + i * GRID_STEP, z);
-      }
-    }
-
+    this.buildGrid(this.minX, this.maxX, this.minZ, this.maxZ, (x, z) => this.fullHeight(x, z));
     this.placeTrees();
   }
 
   // ---------------------------------------------------------------------------------------------
   // Shape helpers
-
-  get length(): number {
-    return this.centerline.length;
-  }
 
   fairwayHalfWidth(s: number, side: number): number {
     const base = this.spec.fairwayWidth / 2;
@@ -253,40 +233,7 @@ export class HoleTerrain implements GroundModel {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // GroundModel
-
-  private sample(i: number, j: number): number {
-    i = clamp(i, 0, this.nx - 1);
-    j = clamp(j, 0, this.nz - 1);
-    return this.heights[j * this.nx + i];
-  }
-
-  heightAt(x: number, z: number): number {
-    const gx = (x - this.minX) / GRID_STEP;
-    const gz = (z - this.minZ) / GRID_STEP;
-    const i = clamp(Math.floor(gx), 0, this.nx - 2);
-    const j = clamp(Math.floor(gz), 0, this.nz - 2);
-    const u = clamp(gx - i, 0, 1);
-    const v = clamp(gz - j, 0, 1);
-    const h00 = this.sample(i, j);
-    const h10 = this.sample(i + 1, j);
-    const h01 = this.sample(i, j + 1);
-    const h11 = this.sample(i + 1, j + 1);
-    // Same diagonal (v10 - v01) as the mesh in meshBuilder.
-    if (u + v <= 1) return h00 + u * (h10 - h00) + v * (h01 - h00);
-    return h11 + (1 - u) * (h01 - h11) + (1 - v) * (h10 - h11);
-  }
-
-  normalAt(x: number, z: number, out: Vector3): Vector3 {
-    const e = 0.5;
-    const dx = this.heightAt(x + e, z) - this.heightAt(x - e, z);
-    const dz = this.heightAt(x, z + e) - this.heightAt(x, z - e);
-    return out.set(-dx / (2 * e), 1, -dz / (2 * e)).normalize();
-  }
-
-  inBounds(x: number, z: number): boolean {
-    return x > this.minX + 4 && x < this.maxX - 4 && z > this.minZ + 4 && z < this.maxZ - 4;
-  }
+  // PlayableHole
 
   surfaceAt(x: number, z: number): SurfaceType {
     if (!this.inBounds(x, z)) return 'ob';
@@ -314,34 +261,44 @@ export class HoleTerrain implements GroundModel {
     return 'deepRough';
   }
 
-  // ---------------------------------------------------------------------------------------------
-  // Gameplay helpers
-
-  teePosition(): Vector3 {
-    return new Vector3(this.tee.x, this.heightAt(this.tee.x, this.tee.z) + BALL_RADIUS, this.tee.z);
+  inWoods(x: number, z: number): boolean {
+    return this.style === 'parkland' && this.surfaceAt(x, z) === 'deepRough';
   }
 
-  cupPosition(): Vector3 {
-    return new Vector3(this.cup.x, this.heightAt(this.cup.x, this.cup.z), this.cup.z);
-  }
-
-  /** Arc length of the closest centerline point. */
-  progress(x: number, z: number): number {
-    return this.centerline.project(x, z).s;
-  }
-
-  /** Where the caddie suggests aiming for a shot that carries `carry` metres from `from`. */
-  suggestedAim(from: Vector3, carry: number): Vec2 {
-    const toPin = Math.hypot(this.cup.x - from.x, this.cup.z - from.z);
-    if (toPin <= carry * 1.08) return { x: this.cup.x, z: this.cup.z };
-    const s0 = this.progress(from.x, from.z);
-    // Walk along the centerline until we're `carry` away in a straight line.
-    let s = s0;
-    for (; s < this.centerline.length; s += 2) {
-      const p = this.centerline.pointAt(s);
-      if (Math.hypot(p.x - from.x, p.z - from.z) >= carry) break;
+  waterSurfaces(): WaterSurface[] {
+    const out: WaterSurface[] = [];
+    // Drawn a little larger than the hazard; the banks hide the overlap.
+    for (const p of this.ponds) out.push({ kind: 'polygon', outline: p.blob.boundary(64, 1.3), level: p.level });
+    for (const b of this.burns) {
+      const points: { x: number; z: number; level: number }[] = [];
+      for (let s = 0; s <= b.line.length; s += 2) {
+        const pt = b.line.pointAt(s);
+        const k = clamp(s / BURN_STEP, 0, b.levels.length - 1);
+        const k0 = Math.floor(k);
+        const lv = b.levels[k0] + (b.levels[Math.min(k0 + 1, b.levels.length - 1)] - b.levels[k0]) * (k - k0);
+        points.push({ x: pt.x, z: pt.z, level: lv });
+      }
+      out.push({ kind: 'ribbon', points, halfWidth: b.halfWidth * 1.6 });
     }
-    return this.centerline.pointAt(s);
+    return out;
+  }
+
+  obStakes(): Vec2[] {
+    const ob = this.spec.ob;
+    if (!ob) return [];
+    const pts: Vec2[] = [];
+    for (const [side, dist] of [
+      [1, ob.right],
+      [-1, ob.left],
+    ] as const) {
+      if (dist === undefined) continue;
+      for (let s = 0; s < this.length + 30; s += 12) {
+        const p = this.centerline.pointAt(s);
+        const d = this.centerline.dirAt(s);
+        pts.push({ x: p.x - d.z * dist * side, z: p.z + d.x * dist * side });
+      }
+    }
+    return pts;
   }
 
   /** Cart path: from beside the tee, down one side of the hole, to the side of the green. */
@@ -363,28 +320,6 @@ export class HoleTerrain implements GroundModel {
     const t0 = pts[0];
     pts.unshift({ x: t0.x - this.teeDir.x * 14, z: t0.z - this.teeDir.z * 14 });
     return new Polyline(pts, false);
-  }
-
-  /** Obstacles near a point (3x3 cells of 20 m). */
-  obstaclesNear(x: number, z: number): readonly Tree[] {
-    const cx = Math.floor(x / 20);
-    const cz = Math.floor(z / 20);
-    const out: Tree[] = [];
-    for (let i = -1; i <= 1; i++) {
-      for (let j = -1; j <= 1; j++) {
-        const cell = this.obstacleGrid.get((cx + i) * 73856093 ^ (cz + j) * 19349663);
-        if (cell) for (const t of cell) out.push(t);
-      }
-    }
-    return out;
-  }
-
-  private addTree(t: Tree): void {
-    this.obstacles.push(t);
-    const key = Math.floor(t.x / 20) * 73856093 ^ Math.floor(t.z / 20) * 19349663;
-    let cell = this.obstacleGrid.get(key);
-    if (!cell) this.obstacleGrid.set(key, (cell = []));
-    cell.push(t);
   }
 
   /** Line the hole with woods (parkland). */
@@ -417,20 +352,6 @@ export class HoleTerrain implements GroundModel {
         tree.deep = into > 30;
         this.addTree(tree);
       }
-    }
-  }
-
-  private makeTree(x: number, z: number, kind: Tree['kind'], rng: () => number): Tree {
-    const baseY = this.heightAt(x, z);
-    switch (kind) {
-      case 'gorse':
-        return { x, z, baseY, radius: 1.0 + rng() * 0.9, canopyBottom: 0, height: 0.9 + rng() * 0.8, kind, rot: rng() * 6.28 };
-      case 'oak':
-        return { x, z, baseY, radius: 3.6 + rng() * 2.4, canopyBottom: 2.6 + rng(), height: 11 + rng() * 7, kind, rot: rng() * 6.28 };
-      case 'birch':
-        return { x, z, baseY, radius: 2.2 + rng(), canopyBottom: 3, height: 10 + rng() * 5, kind, rot: rng() * 6.28 };
-      default:
-        return { x, z, baseY, radius: 2.4 + rng() * 1.3, canopyBottom: 1.8, height: 9 + rng() * 9, kind, rot: rng() * 6.28 };
     }
   }
 

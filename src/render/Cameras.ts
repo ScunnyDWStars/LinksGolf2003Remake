@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { HoleTerrain } from '../course/terrain';
+import type { PlayableHole } from '../course/hole';
 
 export type CameraMode = 'address' | 'flight' | 'overview' | 'flyover' | 'green' | 'holed';
 /** How the camera behaves while the ball is in the air. */
@@ -25,10 +25,10 @@ export class CameraDirector {
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
-    private terrain: HoleTerrain,
+    private terrain: PlayableHole,
   ) {}
 
-  setTerrain(t: HoleTerrain): void {
+  setTerrain(t: PlayableHole): void {
     this.terrain = t;
   }
 
@@ -53,10 +53,19 @@ export class CameraDirector {
     } else {
       // Behind the ball and a touch right, so the golfer (who stands left of the ball) frames the shot.
       // Classic broadcast framing: well behind and above, golfer small in the lower middle, hole laid out ahead.
-      this.wantPos.copy(ball).addScaledVector(d, -9.5);
-      this.wantPos.x += -d.z * 1.1;
-      this.wantPos.z += d.x * 1.1;
-      this.wantPos.y = Math.max(this.ground(this.wantPos.x, this.wantPos.z), ball.y) + 3.4;
+      // In the trees, come in closer until no canopy blocks the view of the golfer.
+      for (const [back, up] of [
+        [9.5, 3.4],
+        [7, 2.8],
+        [5, 2.3],
+        [3.5, 1.9],
+      ] as const) {
+        this.wantPos.copy(ball).addScaledVector(d, -back);
+        this.wantPos.x += -d.z * 1.1 * (back / 9.5);
+        this.wantPos.z += d.x * 1.1 * (back / 9.5);
+        this.wantPos.y = Math.max(this.ground(this.wantPos.x, this.wantPos.z), ball.y) + up;
+        if (this.viewClear(this.wantPos, ball)) break;
+      }
       const ahead = Math.min(Math.max(dist, 40), 170);
       this.wantLook.copy(ball).addScaledVector(d, ahead);
       this.wantLook.y = Math.min(this.ground(this.wantLook.x, this.wantLook.z), ball.y + ahead * 0.08) - 2;
@@ -65,6 +74,22 @@ export class CameraDirector {
       if (this.wantLook.y < minLook) this.wantLook.y = minLook;
     }
     if (snap) this.snap();
+  }
+
+  /** True if no tree canopy sits on the line from the camera to the golfer. */
+  private viewClear(cam: THREE.Vector3, ball: THREE.Vector3): boolean {
+    for (let k = 0; k <= 4; k++) {
+      const t = k / 5;
+      const x = cam.x + (ball.x - cam.x) * t;
+      const y = cam.y + (ball.y + 1.2 - cam.y) * t;
+      const z = cam.z + (ball.z - cam.z) * t;
+      for (const o of this.terrain.obstaclesNear(x, z)) {
+        if (Math.hypot(o.x - x, o.z - z) > o.radius + 0.6) continue;
+        const rel = y - o.baseY;
+        if (rel > o.canopyBottom - 0.5 && rel < o.height + 0.5) return false;
+      }
+    }
+    return true;
   }
 
   beginFlight(ball: THREE.Vector3, landing: THREE.Vector3 | null, finalPos: THREE.Vector3, aimDir: THREE.Vector3, putting: boolean): void {

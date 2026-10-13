@@ -26,6 +26,7 @@ export class Hud {
   private readonly toast: HTMLDivElement;
   private readonly sub: HTMLDivElement;
   private readonly help: HTMLDivElement;
+  private readonly credit: HTMLDivElement;
   private toastTimer = 0;
 
   constructor(parent: HTMLElement) {
@@ -63,6 +64,7 @@ export class Hud {
     this.buttons = el('div', 'hud-buttons', undefined, this.root);
     this.toast = el('div', 'toast', '', this.root);
     this.sub = el('div', 'subtoast', '', this.root);
+    this.credit = el('div', 'hud-credit', '', this.root);
     this.help = el('div', 'help hidden', '', this.root);
     this.help.innerHTML = [
       '<b>Swing</b> Space / click (3 clicks: start, power, accuracy)',
@@ -97,6 +99,11 @@ export class Hud {
     this.course.textContent = course;
     this.holeTitle.textContent = title;
     this.holeInfo.textContent = info;
+  }
+
+  /** Data credits for real courses (OpenStreetMap / elevation licences). */
+  setCredit(text: string): void {
+    this.credit.textContent = text;
   }
 
   setPlayer(name: string, score: string): void {

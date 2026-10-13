@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { HoleTerrain } from '../course/terrain';
+import type { PlayableHole } from '../course/hole';
 import { clamp } from '../util/math';
 
 /**
@@ -15,7 +15,7 @@ export class PuttGrid {
 
   constructor(
     scene: THREE.Scene,
-    private readonly terrain: HoleTerrain,
+    private readonly terrain: PlayableHole,
   ) {
     scene.add(this.group);
     this.build();
@@ -25,7 +25,7 @@ export class PuttGrid {
   private build(): void {
     const t = this.terrain;
     const g = t.green;
-    const r = Math.max(g.spec.rx, g.spec.rz) * 1.35;
+    const r = g.radius * 1.25;
     const cell = 1;
     const inside = (x: number, z: number) => g.field(x, z) < 1.12;
     const verts: number[] = [];

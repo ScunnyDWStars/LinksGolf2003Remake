@@ -19,7 +19,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   playerName: 'Player 1',
-  courseId: 'cedar',
+  courseId: 'romanby',
   swingType: 'classic',
   difficulty: 'pro',
   powerBoost: false,

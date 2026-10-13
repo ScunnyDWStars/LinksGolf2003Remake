@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { HoleTerrain } from '../course/terrain';
+import type { PlayableHole } from '../course/hole';
 import { makeRng } from '../util/rng';
 
 const SHIRTS = ['#d63b3b', '#f2f2f2', '#2f5fb3', '#f0c419', '#3a9a5b', '#7a3fa0', '#ff8a3d', '#1e2a44', '#9fd3f0', '#e86fa3'];
@@ -7,9 +7,9 @@ const TROUSERS = ['#cbbd94', '#1e2a44', '#2b2b2b', '#e9e6dc', '#6b5a43'];
 const SKIN = ['#f1c9a5', '#d9a47e', '#b57a55', '#8a5a3c', '#5e3b26'];
 
 /** Low-poly spectators lining the tee and ringing the green, like a tournament gallery. */
-export function buildGallery(t: HoleTerrain): THREE.Group {
+export function buildGallery(t: PlayableHole): THREE.Group {
   const g = new THREE.Group();
-  const rng = makeRng(900 + t.spec.number * 13);
+  const rng = makeRng(900 + t.info.number * 13);
   const spots: THREE.Vector3[] = [];
 
   const ok = (x: number, z: number) => {
@@ -36,7 +36,7 @@ export function buildGallery(t: HoleTerrain): THREE.Group {
 
   // Green: an arc around the back and sides.
   const gb = t.green;
-  const gr = Math.max(gb.spec.rx, gb.spec.rz);
+  const gr = gb.radius;
   const approach = t.centerline.dirAt(t.length);
   const baseAng = Math.atan2(approach.z, approach.x);
   for (let i = 0; i < 34; i++) {

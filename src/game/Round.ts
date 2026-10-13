@@ -1,4 +1,4 @@
-import type { HoleSpec } from '../course/types';
+import type { HoleInfo } from '../course/hole';
 
 export interface HoleScore {
   strokes: number;
@@ -13,7 +13,7 @@ export class Round {
 
   constructor(
     readonly playerName: string,
-    readonly holes: readonly HoleSpec[],
+    readonly holes: readonly HoleInfo[],
   ) {
     this.scores = holes.map(() => null);
   }

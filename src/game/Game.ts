@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import { Sfx } from '../audio/Sfx';
-import { COURSES, getCourse } from '../course/courses';
+import { COURSES, getCourseEntry, loadCourse, type CourseEntry, type LoadedCourse } from '../course/courses';
+import type { PlayableHole } from '../course/hole';
 import { animateFlag, buildHoleMeshes, type HoleMeshes } from '../course/meshBuilder';
-import { HoleTerrain } from '../course/terrain';
-import type { CourseSpec, HoleSpec } from '../course/types';
 import { Input } from '../input/Input';
 import { FRAME_DT } from '../physics/constants';
 import { simulateShot, type ShotResult } from '../physics/simulator';
@@ -60,12 +59,17 @@ export class Game {
   private readonly aim: AimMarker;
   private cams: CameraDirector | null = null;
 
-  private terrain: HoleTerrain | null = null;
+  private terrain: PlayableHole | null = null;
   private meshes: HoleMeshes | null = null;
   private grid: PuttGrid | null = null;
 
   private phase: Phase = 'menu';
-  private course: CourseSpec = getCourse(this.settings.courseId);
+  private courseEntry: CourseEntry = getCourseEntry(this.settings.courseId);
+  private course: LoadedCourse | null = null;
+  /** Course hole index for each hole of the current round. */
+  private roundHoles: number[] = [];
+  /** Bumped on every course switch so a slow download can't overwrite a newer choice. */
+  private loadToken = 0;
   private round: Round | null = null;
   private roundKind: StartOptions['kind'] = '18';
   private holeIdx = 0;
@@ -159,23 +163,44 @@ export class Game {
     if (this.phase === 'aiming') this.refreshHud();
   }
 
-  /** A pretty hole behind the main menu. */
-  private showIdleBackdrop(): void {
-    this.course = getCourse(this.settings.courseId);
-    this.loadTerrain(this.course.holes[this.course.style === 'parkland' ? 0 : 17]);
-    this.cams!.startFlyover();
-    this.ballView.ball.visible = false;
-    this.golfer.visible = false;
-    this.aim.visible = false;
+  /** Load the selected course (real courses download on first use). */
+  private async ensureCourse(): Promise<LoadedCourse> {
+    const entry = getCourseEntry(this.settings.courseId);
+    if (this.course && this.course.entry.id === entry.id) return this.course;
+    this.courseEntry = entry;
+    const token = ++this.loadToken;
+    const c = await loadCourse(entry);
+    if (token !== this.loadToken) throw new Error('superseded');
+    this.course = c;
+    return c;
   }
 
-  private loadTerrain(spec: HoleSpec): void {
+  /** A pretty hole behind the main menu. */
+  private showIdleBackdrop(): void {
+    const entry = getCourseEntry(this.settings.courseId);
+    this.menu.setBusy(entry.kind === 'real' && this.course?.entry.id !== entry.id, '');
+    this.ensureCourse()
+      .then((c) => {
+        this.menu.setBusy(false);
+        if (this.phase !== 'menu') return;
+        this.loadTerrain(c.entry.style === 'links' && c.entry.kind === 'original' ? c.holes.length - 1 : 0);
+        this.cams!.startFlyover();
+        this.ballView.ball.visible = false;
+        this.golfer.visible = false;
+        this.aim.visible = false;
+      })
+      .catch((e: Error) => {
+        if (e.message !== 'superseded') this.menu.setBusy(false, `${e.message}. Check your connection and pick the course again.`);
+      });
+  }
+
+  private loadTerrain(courseHole: number): void {
     if (this.meshes) {
       this.gs.scene.remove(this.meshes.group);
       this.meshes.dispose();
     }
     this.grid?.dispose();
-    this.terrain = new HoleTerrain(spec, this.course.style);
+    this.terrain = this.course!.makeHole(courseHole);
     this.meshes = buildHoleMeshes(this.terrain);
     this.gs.scene.add(this.meshes.group);
     this.grid = new PuttGrid(this.gs.scene, this.terrain);
@@ -184,16 +209,30 @@ export class Game {
     this.cams.flightStyle = this.settings.flightCam;
   }
 
-  startRound(o: StartOptions): void {
+  async startRound(o: StartOptions): Promise<void> {
     this.sfx.unlock();
     this.roundKind = o.kind;
-    this.course = getCourse(this.settings.courseId);
-    const all = this.course.holes;
-    const holes =
-      o.kind === 'front' ? all.slice(0, 9) : o.kind === 'back' ? all.slice(9) : o.kind === 'practice' ? [all[o.practiceHole - 1]] : all;
-    this.round = new Round(this.settings.playerName, holes);
+    let course: LoadedCourse;
+    try {
+      this.menu.setBusy(true, `Loading ${getCourseEntry(this.settings.courseId).name}…`);
+      course = await this.ensureCourse();
+    } catch (e) {
+      const msg = (e as Error).message;
+      this.menu.setBusy(false, msg === 'superseded' ? '' : `${msg}. Check your connection and try again.`);
+      return;
+    }
+    this.menu.setBusy(false);
+    const n = course.holes.length;
+    const all = Array.from({ length: n }, (_, i) => i);
+    const front = all.filter((i) => course.holes[i].number <= 9);
+    const back = all.filter((i) => course.holes[i].number > 9);
+    this.roundHoles =
+      o.kind === 'front' ? front : o.kind === 'back' ? back : o.kind === 'practice' ? [Math.min(n - 1, Math.max(0, o.practiceHole))] : all;
+    this.round = new Round(this.settings.playerName, this.roundHoles.map((i) => course.holes[i]));
     this.menu.show(false);
     this.hud.show(true);
+    this.hud.setCredit(course.entry.credits.join(' · '));
+    this.phase = 'flyover';
     this.loadHole(0);
   }
 
@@ -212,7 +251,7 @@ export class Game {
     const round = this.round!;
     this.holeIdx = i;
     const spec = round.holes[i];
-    this.loadTerrain(spec);
+    this.loadTerrain(this.roundHoles[i]);
     const t = this.terrain!;
     this.rng = makeRng(hashSeed(`${Date.now()}-${spec.number}`));
     const [lo, hi] = WIND_MPH[this.settings.wind];
@@ -230,8 +269,8 @@ export class Game {
     this.ballView.ball.visible = true;
     this.overviewOn = false;
 
-    const yards = Math.round(this.dist(t.length));
-    this.hud.setHole(this.course.name, `Hole ${spec.number}, Par ${spec.par}`, `${spec.name} · ${yards} ${this.unit()}`);
+    const yards = Math.round(this.settings.units === 'yards' ? spec.yards : spec.yards * 0.9144);
+    this.hud.setHole(this.courseEntry.name, `Hole ${spec.number}, Par ${spec.par}`, `${spec.name} · ${yards} ${this.unit()}`);
     this.hud.minimap.setHole(t);
     this.updateScoreLine();
     this.hud.showToast(`Hole ${spec.number}`, `${spec.name} · Par ${spec.par} · ${yards} ${this.unit()}`, 2600, true);
@@ -732,7 +771,7 @@ export class Game {
   private roundOver(): void {
     const round = this.round!;
     this.phase = 'roundOver';
-    const kind = this.roundKind === 'practice' ? '' : `${this.course.id}:${this.roundKind}`;
+    const kind = this.roundKind === 'practice' ? '' : `${this.courseEntry.id}:${this.roundKind}`;
     const best = kind ? saveBest(kind, round.totalStrokes) : false;
     this.showScorecard({
       title: `Round complete — ${round.playerName}`,
@@ -750,7 +789,7 @@ export class Game {
       return;
     }
     this.pause.show(false);
-    this.scorecard.show(this.round, this.course.name, (h) => Math.round(toYards(new HoleTerrainLength(h).length)), opts);
+    this.scorecard.show(this.round, this.courseEntry.name, opts);
   }
 
   setPaused(p: boolean): void {
@@ -865,7 +904,8 @@ export class Game {
 
   update(dt: number): void {
     this.time += dt;
-    const cams = this.cams!;
+    if (!this.cams) return; // the first course is still loading
+    const cams = this.cams;
 
     // Held keys: continuous aiming.
     const held = this.input.held;
@@ -949,19 +989,5 @@ export class Game {
         boost: this.settings.powerBoost,
       });
     }
-  }
-}
-
-/** Lightweight length calculation for scorecard yardages without building terrain. */
-class HoleTerrainLength {
-  readonly length: number;
-  constructor(h: HoleSpec) {
-    let L = 0;
-    for (let i = 1; i < h.centerline.length; i++) {
-      const a = h.centerline[i - 1];
-      const b = h.centerline[i];
-      L += Math.hypot(b[0] - a[0], b[1] - a[1]);
-    }
-    this.length = L;
   }
 }

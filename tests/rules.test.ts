@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { KESTREL_DUNES } from '../src/course/kestrelDunes';
-import { HoleTerrain } from '../src/course/terrain';
+import { HoleTerrain, holeInfoFor } from '../src/course/terrain';
 import { FlatGround } from '../src/physics/ground';
 import type { ShotResult } from '../src/physics/simulator';
 import { formatToPar, resolveShot, scoreName } from '../src/game/Rules';
@@ -68,7 +68,7 @@ describe('scoring', () => {
   });
 
   it('totals a round relative to par', () => {
-    const r = new Round('Test', KESTREL_DUNES.holes.slice(0, 3)); // pars 4, 4, 3
+    const r = new Round('Test', KESTREL_DUNES.holes.slice(0, 3).map(holeInfoFor)); // pars 4, 4, 3
     r.record(0, { strokes: 3, putts: 1, penalties: 0, pickedUp: false });
     r.record(1, { strokes: 6, putts: 2, penalties: 1, pickedUp: false });
     expect(r.toPar).toBe(1);

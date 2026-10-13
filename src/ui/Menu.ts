@@ -1,4 +1,5 @@
-import type { CourseSpec } from '../course/types';
+import type { CourseEntry } from '../course/courses';
+import { holeInfoFor } from '../course/terrain';
 import { loadBest, type Settings } from '../game/Settings';
 import { el } from './dom';
 
@@ -6,6 +7,7 @@ export type RoundKind = '18' | 'front' | 'back' | 'practice';
 
 export interface StartOptions {
   kind: RoundKind;
+  /** Index into the course's holes for a practice round. */
   practiceHole: number;
 }
 
@@ -53,10 +55,12 @@ export function buildSettingsForm(parent: HTMLElement, s: Settings, onChange: ()
 export class MainMenu {
   readonly root: HTMLDivElement;
   private best: HTMLDivElement | null = null;
+  private start: HTMLButtonElement | null = null;
+  private status: HTMLDivElement | null = null;
 
   constructor(
     parent: HTMLElement,
-    private readonly courses: readonly CourseSpec[],
+    private readonly courses: readonly CourseEntry[],
     private readonly settings: Settings,
     onSettings: () => void,
     onStart: (o: StartOptions) => void,
@@ -82,18 +86,32 @@ export class MainMenu {
     });
 
     el('h3', '', 'Course', left);
-    const courseSeg = el('div', 'seg', undefined, left);
-    const courseButtons = courses.map((c) => {
-      const b = el('button', 'seg-btn', c.name.replace(/ (Golf Links|Country Club)$/, ''), courseSeg);
-      b.type = 'button';
-      b.addEventListener('click', () => {
-        settings.courseId = c.id;
-        refreshCourse();
-        onSettings();
-        onCourse();
-      });
-      return b;
-    });
+    const list = el('div', 'course-list', undefined, left);
+    const courseButtons: { id: string; b: HTMLButtonElement }[] = [];
+    for (const [kind, label] of [
+      ['real', 'Real courses'],
+      ['original', 'Original courses'],
+    ] as const) {
+      const group = courses.filter((c) => c.kind === kind);
+      if (!group.length) continue;
+      el('div', 'course-group', label, list);
+      for (const c of group) {
+        const b = el('button', 'course-card', undefined, list);
+        b.type = 'button';
+        b.dataset.course = c.id;
+        el('span', 'course-name', c.name, b);
+        el('span', 'course-meta', [c.place, c.country].filter(Boolean).join(', ') || 'Designed for this game', b);
+        el('span', 'course-stats', `${c.holes} holes · Par ${c.par} · ${c.yards.toLocaleString()} yds · ${c.style === 'links' ? 'Links' : 'Parkland'}`, b);
+        b.addEventListener('click', () => {
+          settings.courseId = c.id;
+          refreshCourse();
+          onSettings();
+          onCourse();
+        });
+        courseButtons.push({ id: c.id, b });
+      }
+    }
+    const credit = el('div', 'course-credit', '', left);
 
     el('h3', '', 'Round', left);
     const kinds: { kind: RoundKind; label: string }[] = [
@@ -107,13 +125,15 @@ export class MainMenu {
     const holeSel = el('select', 'hole-select hidden', undefined, left);
     const refreshCourse = () => {
       const c = course();
-      subtitle.textContent = `${c.name} · Par ${c.holes.reduce((s, h) => s + h.par, 0)}`;
-      courseButtons.forEach((b, i) => b.classList.toggle('on', courses[i].id === c.id));
+      subtitle.textContent = `${c.name} · Par ${c.par}`;
+      courseButtons.forEach(({ id, b }) => b.classList.toggle('on', id === c.id));
+      credit.textContent = c.credits.join(' · ');
       holeSel.innerHTML = '';
-      for (const h of c.holes) {
-        const o = el('option', '', `${h.number}. ${h.name} (Par ${h.par})`, holeSel);
-        o.value = String(h.number);
-      }
+      const names = c.spec ? c.spec.holes.map((h) => { const i = holeInfoFor(h); return `${i.number}. ${i.name} (Par ${i.par})`; }) : Array.from({ length: c.holes }, (_, i) => `Hole ${i + 1}`);
+      names.forEach((label, i) => {
+        const o = el('option', '', label, holeSel);
+        o.value = String(i);
+      });
       this.refreshBest();
     };
     const kindButtons = kinds.map((k) => {
@@ -130,9 +150,10 @@ export class MainMenu {
 
     const start = el('button', 'btn primary big', 'Tee Off', left);
     start.dataset.testid = 'tee-off';
-    start.addEventListener('click', () => onStart({ kind: chosen, practiceHole: Number(holeSel.value) || 1 }));
+    start.addEventListener('click', () => onStart({ kind: chosen, practiceHole: Number(holeSel.value) || 0 }));
+    this.start = start;
+    this.status = el('div', 'menu-status', '', left);
     this.best = el('div', 'best', '', left);
-    void this.courses;
 
     el('h3', '', 'How to play', left);
     const how = el('div', 'how', undefined, left);
@@ -162,6 +183,19 @@ export class MainMenu {
   show(v: boolean): void {
     this.root.classList.toggle('hidden', !v);
     if (v) this.refreshBest();
+  }
+
+  /** While a course file downloads. */
+  setBusy(busy: boolean, message = ''): void {
+    if (this.start) {
+      this.start.disabled = busy;
+      this.start.textContent = busy ? 'Loading course…' : 'Tee Off';
+    }
+    if (this.status) this.status.textContent = message;
+  }
+
+  get courseCount(): number {
+    return this.courses.length;
   }
 }
 

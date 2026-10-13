@@ -1,4 +1,3 @@
-import type { HoleSpec } from '../course/types';
 import { formatToPar } from '../game/Rules';
 import type { Round } from '../game/Round';
 import { el } from './dom';
@@ -38,13 +37,14 @@ export class Scorecard {
     this.onContinue = null;
   }
 
-  show(round: Round, courseName: string, yards: (h: HoleSpec) => number, opts: { title?: string; footer?: string; button?: string; onContinue?: () => void } = {}): void {
+  show(round: Round, courseName: string, opts: { title?: string; footer?: string; button?: string; onContinue?: () => void } = {}): void {
     this.title.textContent = opts.title ?? `${courseName} — ${round.playerName}`;
     this.footer.textContent = opts.footer ?? '';
     this.button.textContent = opts.button ?? 'Close';
     this.onContinue = opts.onContinue ?? null;
     this.body.innerHTML = '';
     const holes = round.holes;
+    const yards = (h: (typeof holes)[number]) => h.yards;
     const halves: number[][] = [];
     const front = holes.map((h, i) => (h.number <= 9 ? i : -1)).filter((i) => i >= 0);
     const back = holes.map((h, i) => (h.number > 9 ? i : -1)).filter((i) => i >= 0);

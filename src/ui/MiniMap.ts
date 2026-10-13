@@ -1,4 +1,4 @@
-import type { HoleTerrain } from '../course/terrain';
+import type { PlayableHole } from '../course/hole';
 import type { SurfaceType } from '../physics/surfaces';
 import { el } from './dom';
 
@@ -40,7 +40,7 @@ export class MiniMap {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private base: HTMLCanvasElement | null = null;
-  private t: HoleTerrain | null = null;
+  private t: PlayableHole | null = null;
   private fx = 0;
   private fz = -1;
   private ox = 0;
@@ -86,7 +86,7 @@ export class MiniMap {
     return this.toWorld(cx, cy);
   }
 
-  setHole(t: HoleTerrain): void {
+  setHole(t: PlayableHole): void {
     this.t = t;
     this.trail = [];
     const g = { x: t.green.cx, z: t.green.cz };
@@ -104,11 +104,11 @@ export class MiniMap {
       const rx = p.x - this.ox;
       const rz = p.z - this.oz;
       const u = rx * -this.fz + rz * this.fx;
-      uLo = Math.min(uLo, u - t.spec.fairwayWidth);
-      uHi = Math.max(uHi, u + t.spec.fairwayWidth);
+      uLo = Math.min(uLo, u - t.corridorWidth);
+      uHi = Math.max(uHi, u + t.corridorWidth);
     }
     this.vMin = -18;
-    const vMax = L + Math.max(t.spec.green.rx, t.spec.green.rz) + 22;
+    const vMax = L + t.green.radius + 22;
     this.uMid = (uLo + uHi) / 2;
     this.scale = Math.min((this.W * 2 - 16) / (uHi - uLo), (this.H * 2 - 28) / (vMax - this.vMin));
     this.renderBase();

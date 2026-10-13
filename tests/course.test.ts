@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { COURSES } from '../src/course/courses';
+import { CEDAR_RIDGE } from '../src/course/cedarRidge';
 import { KESTREL_DUNES } from '../src/course/kestrelDunes';
 import { HoleTerrain } from '../src/course/terrain';
 import { toYards } from '../src/util/math';
 
-describe.each(COURSES.map((c) => [c.name, c] as const))('%s', (_name, course) => {
+describe.each([CEDAR_RIDGE, KESTREL_DUNES].map((c) => [c.name, c] as const))('%s', (_name, course) => {
   const terrains = course.holes.map((h) => new HoleTerrain(h, course.style));
 
   it('has 18 holes numbered in order, totalling par 72 with 36 out and 36 in', () => {

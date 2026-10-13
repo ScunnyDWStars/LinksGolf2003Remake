@@ -6,7 +6,7 @@ import { buildGallery } from '../render/Gallery';
 import { makeDetailTexture, makeWaterMaterial } from '../render/materials';
 import { clamp, smoothstep } from '../util/math';
 import { makeRng } from '../util/rng';
-import { GRID_STEP, type HoleTerrain } from './terrain';
+import { GRID_STEP, type PlayableHole } from './hole';
 
 type Palette = Record<SurfaceType, THREE.Color>;
 
@@ -37,7 +37,7 @@ const PARKLAND: Palette = {
   ob: new THREE.Color('#3e6a24'),
 };
 
-const paletteFor = (t: HoleTerrain): Palette => (t.style === 'parkland' ? PARKLAND : LINKS);
+const paletteFor = (t: PlayableHole): Palette => (t.style === 'parkland' ? PARKLAND : LINKS);
 
 let detailTex: THREE.CanvasTexture | null = null;
 
@@ -49,9 +49,9 @@ export interface HoleMeshes {
 }
 
 /** Build every visual for one hole. */
-export function buildHoleMeshes(t: HoleTerrain): HoleMeshes {
+export function buildHoleMeshes(t: PlayableHole): HoleMeshes {
   const group = new THREE.Group();
-  group.name = `hole-${t.spec.number}`;
+  group.name = `hole-${t.info.number}`;
   detailTex ??= makeDetailTexture();
 
   group.add(buildTerrainMesh(t));
@@ -81,7 +81,7 @@ export function buildHoleMeshes(t: HoleTerrain): HoleMeshes {
   };
 }
 
-function colorFor(t: HoleTerrain, x: number, z: number, out: THREE.Color): THREE.Color {
+function colorFor(t: PlayableHole, x: number, z: number, out: THREE.Color): THREE.Color {
   const surf = t.surfaceAt(x, z);
   const BASE = paletteFor(t);
   out.copy(BASE[surf]);
@@ -106,6 +106,11 @@ function colorFor(t: HoleTerrain, x: number, z: number, out: THREE.Color): THREE
       break;
     case 'deepRough':
     case 'ob': {
+      if (t.style === 'parkland' && !t.inWoods(x, z)) {
+        // Longer grass beyond the first cut.
+        out.copy(BASE.rough).multiplyScalar(0.86 * (1 + n * 0.1));
+        break;
+      }
       if (t.style === 'parkland') {
         // Woodland floor: mossy greens with brown leaf litter.
         const patch = t.noise.fbm(x / 14, z / 14, 3);
@@ -131,7 +136,7 @@ function colorFor(t: HoleTerrain, x: number, z: number, out: THREE.Color): THREE
   return out;
 }
 
-function buildTerrainMesh(t: HoleTerrain): THREE.Mesh {
+function buildTerrainMesh(t: PlayableHole): THREE.Mesh {
   const { nx, nz } = t;
   const positions = new Float32Array(nx * nz * 3);
   const colors = new Float32Array(nx * nz * 3);
@@ -183,7 +188,7 @@ function buildTerrainMesh(t: HoleTerrain): THREE.Mesh {
 }
 
 /** Low-detail dunes and sea out to the horizon so the hole doesn't float in space. */
-function buildSurroundings(t: HoleTerrain): THREE.Group {
+function buildSurroundings(t: PlayableHole): THREE.Group {
   const g = new THREE.Group();
   const size = 3200;
   const seg = 200;
@@ -209,10 +214,11 @@ function buildSurroundings(t: HoleTerrain): THREE.Group {
       const ox = Math.max(t.minX - x, 0, x - t.maxX);
       const oz = Math.max(t.minZ - z, 0, z - t.maxZ);
       const out = Math.hypot(ox, oz);
-      // Wooded hills rolling away to the horizon.
+      // Wooded hills rolling away to the horizon (or the real land around a mapped course).
       const n = t.noise.fbm(x / 160 + 300, z / 160, 4);
-      let h = t.edgeHeight + 2 + (n * 22 + 12) * smoothstep(0, 400, out) + 8 * smoothstep(0, 60, out);
-      if (out < 1) h = t.edgeHeight - 1.2;
+      const real = t.farHeight(x, z);
+      let h = real !== null ? real - 0.4 : t.edgeHeight + 2 + (n * 22 + 12) * smoothstep(0, 400, out) + 8 * smoothstep(0, 60, out);
+      if (out < 1) h = Math.min(h, t.edgeHeight) - 1.2;
       pos.setY(k, h);
       const lumpy = t.noise.noise(x / 11, z / 11);
       c.copy(canopyDark).lerp(canopyLight, clamp(0.45 + lumpy * 0.7 + n * 0.3, 0, 1));
@@ -226,14 +232,15 @@ function buildSurroundings(t: HoleTerrain): THREE.Group {
     const oz = Math.max(t.minZ - z, 0, z - t.maxZ);
     const out = Math.hypot(ox, oz);
     const n = t.noise.fbm(x / 70 + 300, z / 70, 4);
-    let h = t.edgeHeight - 0.6 + (Math.abs(n) * 9 + n * 3) * smoothstep(0, 120, out);
+    const real = t.farHeight(x, z);
+    let h = real !== null ? real - 0.4 : t.edgeHeight - 0.6 + (Math.abs(n) * 9 + n * 3) * smoothstep(0, 120, out);
     // Toward the sea the land drops to a beach.
     const seaDist = (x - t.maxX) * seaSide - 260;
-    h -= smoothstep(-40, 140, seaDist) * (h + 3.5);
+    if (real === null) h -= smoothstep(-40, 140, seaDist) * (h + 3.5);
     if (out < 1) h = t.edgeHeight - 1.2;
     pos.setY(k, h);
     c.copy(fescue).lerp(grass, clamp(0.5 + n, 0, 1));
-    if (seaDist > -20) c.lerp(duneSand, smoothstep(-20, 60, seaDist));
+    if (real === null && seaDist > -20) c.lerp(duneSand, smoothstep(-20, 60, seaDist));
     c.multiplyScalar(1 + t.noise.noise(x / 9, z / 9) * 0.08);
     colors.set([c.r, c.g, c.b], k * 3);
   }
@@ -251,41 +258,72 @@ function buildSurroundings(t: HoleTerrain): THREE.Group {
   return g;
 }
 
-function buildWater(t: HoleTerrain): THREE.Mesh[] {
+function buildWater(t: PlayableHole): THREE.Mesh[] {
   const meshes: THREE.Mesh[] = [];
   const mat = makeWaterMaterial();
   mat.side = THREE.DoubleSide;
-  for (const p of t.ponds) {
-    const s = p.blob.spec;
-    const geo = new THREE.CircleGeometry(1, 64);
-    geo.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(geo, mat);
-    m.scale.set(s.rx * 1.35, 1, s.rz * 1.35);
-    m.rotation.y = -((s.rot ?? 0) * Math.PI) / 180;
-    m.position.set(p.blob.cx, p.level, p.blob.cz);
-    meshes.push(m);
-  }
-  for (const b of t.burns) {
+  for (const w of t.waterSurfaces()) {
+    if (w.kind === 'grid') {
+      const pos: number[] = [];
+      const idx: number[] = [];
+      const vid = new Int32Array(w.nx * w.nz).fill(-1);
+      const vert = (i: number, j: number) => {
+        const k = j * w.nx + i;
+        if (vid[k] < 0) {
+          vid[k] = pos.length / 3;
+          pos.push(w.minX + i * w.step, w.level[k], w.minZ + j * w.step);
+        }
+        return vid[k];
+      };
+      for (let j = 0; j < w.nz - 1; j++) {
+        for (let i = 0; i < w.nx - 1; i++) {
+          const k = j * w.nx + i;
+          if (Number.isNaN(w.level[k]) || Number.isNaN(w.level[k + 1]) || Number.isNaN(w.level[k + w.nx]) || Number.isNaN(w.level[k + w.nx + 1])) continue;
+          const a = vert(i, j);
+          const b = vert(i + 1, j);
+          const c = vert(i, j + 1);
+          const d = vert(i + 1, j + 1);
+          idx.push(a, c, b, b, c, d);
+        }
+      }
+      if (!idx.length) continue;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx);
+      meshes.push(new THREE.Mesh(geo, mat));
+      continue;
+    }
+    if (w.kind === 'polygon') {
+      if (w.outline.length < 3) continue;
+      // Shape works in x/y; map world z to -y so rotating -90° about X lands it back on z.
+      const shape = new THREE.Shape(w.outline.map((p) => new THREE.Vector2(p.x, -p.z)));
+      const geo = new THREE.ShapeGeometry(shape);
+      geo.rotateX(-Math.PI / 2);
+      geo.translate(0, w.level, 0);
+      meshes.push(new THREE.Mesh(geo, mat));
+      continue;
+    }
     const verts: number[] = [];
     const idx: number[] = [];
-    const step = 2;
     let row = 0;
-    for (let s = 0; s <= b.line.length; s += step) {
-      const pt = b.line.pointAt(s);
+    for (let k = 0; k < w.points.length; k++) {
+      const pt = w.points[k];
       // Only inside the playable patch; beyond it the outer land sits lower and the ribbon would float.
       if (pt.x < t.minX + 2 || pt.x > t.maxX - 2 || pt.z < t.minZ + 2 || pt.z > t.maxZ - 2) continue;
-      const d = b.line.dirAt(s);
-      const k = clamp(s / 4, 0, b.levels.length - 1);
-      const k0 = Math.floor(k);
-      const lv = b.levels[k0] + (b.levels[Math.min(k0 + 1, b.levels.length - 1)] - b.levels[k0]) * (k - k0);
-      const w = b.halfWidth * 1.6;
-      verts.push(pt.x - d.z * w, lv, pt.z + d.x * w, pt.x + d.z * w, lv, pt.z - d.x * w);
+      const a = w.points[Math.max(0, k - 1)];
+      const b = w.points[Math.min(w.points.length - 1, k + 1)];
+      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      const dx = (b.x - a.x) / len;
+      const dz = (b.z - a.z) / len;
+      const hw = w.halfWidth;
+      verts.push(pt.x - dz * hw, pt.level, pt.z + dx * hw, pt.x + dz * hw, pt.level, pt.z - dx * hw);
       if (row > 0) {
-        const a = (row - 1) * 2;
-        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+        const i = (row - 1) * 2;
+        idx.push(i, i + 1, i + 2, i + 1, i + 3, i + 2);
       }
       row++;
     }
+    if (row < 2) continue;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
     geo.setIndex(idx);
@@ -320,7 +358,7 @@ function canopyGeometry(detail: number): THREE.BufferGeometry {
   return geo;
 }
 
-function buildTrees(t: HoleTerrain): THREE.Group {
+function buildTrees(t: PlayableHole): THREE.Group {
   const g = new THREE.Group();
   const pines = t.obstacles.filter((o) => o.kind === 'pine');
   const broadleaf = t.obstacles.filter((o) => o.kind === 'oak' || o.kind === 'birch');
@@ -328,7 +366,7 @@ function buildTrees(t: HoleTerrain): THREE.Group {
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
-  const rng = makeRng(t.spec.number * 17);
+  const rng = makeRng(t.info.number * 17);
 
   if (broadleaf.length) {
     const trunkGeo = new THREE.CylinderGeometry(0.16, 0.3, 1, 6).translate(0, 0.5, 0);
@@ -423,7 +461,7 @@ function buildTrees(t: HoleTerrain): THREE.Group {
   return g;
 }
 
-function buildTeeMarkers(t: HoleTerrain): THREE.Group {
+function buildTeeMarkers(t: PlayableHole): THREE.Group {
   const g = new THREE.Group();
   const geo = new THREE.SphereGeometry(0.12, 12, 8);
   const mat = new THREE.MeshLambertMaterial({ color: '#2a62c9' });
@@ -439,21 +477,9 @@ function buildTeeMarkers(t: HoleTerrain): THREE.Group {
   return g;
 }
 
-function buildObStakes(t: HoleTerrain): THREE.InstancedMesh | null {
-  const ob = t.spec.ob;
-  if (!ob) return null;
-  const pts: { x: number; z: number }[] = [];
-  for (const [side, dist] of [
-    [1, ob.right],
-    [-1, ob.left],
-  ] as const) {
-    if (dist === undefined) continue;
-    for (let s = 0; s < t.length + 30; s += 12) {
-      const p = t.centerline.pointAt(s);
-      const d = t.centerline.dirAt(s);
-      pts.push({ x: p.x - d.z * dist * side, z: p.z + d.x * dist * side });
-    }
-  }
+function buildObStakes(t: PlayableHole): THREE.InstancedMesh | null {
+  const pts = t.obStakes();
+  if (!pts.length) return null;
   const geo = new THREE.CylinderGeometry(0.05, 0.05, 1.2, 6).translate(0, 0.6, 0);
   const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: '#f4f4f4' }), pts.length);
   const m4 = new THREE.Matrix4();
@@ -465,7 +491,7 @@ function buildObStakes(t: HoleTerrain): THREE.InstancedMesh | null {
   return m;
 }
 
-function buildPin(t: HoleTerrain): { pin: THREE.Group; flag: THREE.Mesh; flagBaseY: number } {
+function buildPin(t: PlayableHole): { pin: THREE.Group; flag: THREE.Mesh; flagBaseY: number } {
   const g = new THREE.Group();
   const y = t.heightAt(t.cup.x, t.cup.z);
   // Cup: dark hole with a white liner ring.

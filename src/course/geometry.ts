@@ -120,6 +120,23 @@ export class Blob {
     return q / (1 + this.wobble * w);
   }
 
+  /** Outline where field = 1 (times `scale`), in world coordinates. */
+  boundary(n = 48, scale = 1): Vec2[] {
+    const pts: Vec2[] = [];
+    for (let k = 0; k < n; k++) {
+      const ang = (k / n) * Math.PI * 2;
+      // field() keys its wobble on the angle of the unnormalised local point.
+      const la = Math.atan2(Math.sin(ang) * this.spec.rz, Math.cos(ang) * this.spec.rx);
+      const w = this.wobble ? this.noise.noise(Math.cos(la) * 1.3 + this.seed * 7.31, Math.sin(la) * 1.3 + this.seed * 3.17) : 0;
+      const r = (1 + this.wobble * w) * scale;
+      // Local frame (lx, lz) -> world, inverting the rotation used in field().
+      const lx = Math.cos(ang) * this.spec.rx * r;
+      const lz = Math.sin(ang) * this.spec.rz * r;
+      pts.push({ x: this.cx + lx * this.cos - lz * this.sin, z: this.cz + lx * this.sin + lz * this.cos });
+    }
+    return pts;
+  }
+
   /** Rough bounding radius. */
   get radius(): number {
     return Math.max(this.spec.rx, this.spec.rz) * (1 + this.wobble);
