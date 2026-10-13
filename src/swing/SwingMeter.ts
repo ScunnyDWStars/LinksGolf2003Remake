@@ -36,8 +36,21 @@ export class SwingMeter {
   pos = 0;
   power = 0;
   accuracy = 0;
+  /**
+   * Club tempo (1 = driver). Shorter clubs swing more slowly, like a real wedge or putter stroke.
+   * Set before each swing.
+   */
+  tempo = 1;
 
   constructor(public cfg: MeterConfig) {}
+
+  /**
+   * Meter units per second on the way down. A short backswing comes down more slowly, so the time from
+   * setting power to the snap line stays roughly the same for a chip as for a full drive.
+   */
+  get downswingRate(): number {
+    return this.cfg.downswingSpeed * this.tempo * (0.35 + 0.65 * Math.min(1, Math.max(0, this.power)));
+  }
 
   reset(): void {
     this.state = 'idle';
@@ -69,14 +82,14 @@ export class SwingMeter {
   /** Advance the marker. Returns the result if the swing auto-completed this frame. */
   update(dt: number): SwingResult | null {
     if (this.state === 'backswing') {
-      this.pos += this.cfg.backswingSpeed * dt;
+      this.pos += this.cfg.backswingSpeed * this.tempo * dt;
       if (this.pos >= this.cfg.maxPower) {
         this.pos = this.cfg.maxPower;
         this.power = this.cfg.maxPower;
         this.state = 'downswing';
       }
     } else if (this.state === 'downswing') {
-      this.pos -= this.cfg.downswingSpeed * dt;
+      this.pos -= this.downswingRate * dt;
       if (this.pos <= -this.cfg.missLimit) {
         this.pos = -this.cfg.missLimit;
         this.accuracy = this.cfg.missLimit;

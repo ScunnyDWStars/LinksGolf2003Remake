@@ -17,7 +17,7 @@ describe('SwingMeter (3-click)', () => {
     m.click();
     expect(m.state).toBe('downswing');
     expect(m.power).toBeCloseTo(0.8);
-    m.update(0.4); // 0.8 - 0.8 = 0 -> on the line
+    m.update(0.8 / m.downswingRate); // exactly back to the line
     const r = m.click();
     expect(r).not.toBeNull();
     expect(r!.power).toBeCloseTo(0.8);
@@ -29,14 +29,14 @@ describe('SwingMeter (3-click)', () => {
     early.click();
     early.update(0.5);
     early.click();
-    early.update(0.2);
+    early.update(0.2 / early.downswingRate);
     expect(early.click()!.accuracy).toBeLessThan(0);
 
     const late = new SwingMeter({ backswingSpeed: 1, downswingSpeed: 1, maxPower: 1.12, missLimit: 0.15 });
     late.click();
     late.update(0.5);
     late.click();
-    late.update(0.55);
+    late.update(0.55 / late.downswingRate);
     expect(late.click()!.accuracy).toBeGreaterThan(0);
   });
 
@@ -50,6 +50,39 @@ describe('SwingMeter (3-click)', () => {
     for (let i = 0; i < 200 && !r; i++) r = m.update(0.02);
     expect(r).not.toBeNull();
     expect(r!.accuracy).toBeCloseTo(0.15);
+  });
+});
+
+describe('swing tempo', () => {
+  /** Seconds from setting power to the marker reaching the snap line. */
+  const downswingTime = (clubId: string, power: number) => {
+    const m = new SwingMeter(DIFFICULTY.pro);
+    m.tempo = BAG[clubIndex(clubId)].tempo;
+    m.click();
+    m.update(power / (m.cfg.backswingSpeed * m.tempo));
+    m.click();
+    return power / m.downswingRate;
+  };
+
+  it('gives a short wedge shot time to find the snap line', () => {
+    expect(downswingTime('pw', 0.3)).toBeGreaterThan(0.4);
+    expect(downswingTime('pt', 0.2)).toBeGreaterThan(0.4);
+  });
+
+  it('keeps a full driver at about the old tempo', () => {
+    expect(downswingTime('dr', 1)).toBeGreaterThan(0.55);
+    expect(downswingTime('dr', 1)).toBeLessThan(0.7);
+  });
+
+  it('never makes a shorter club come down faster than a longer one', () => {
+    const clubs = BAG.map((c) => c.id);
+    for (const p of [0.3, 0.6, 1]) {
+      for (let i = 1; i < clubs.length; i++) expect(downswingTime(clubs[i], p)).toBeGreaterThanOrEqual(downswingTime(clubs[i - 1], p) - 1e-9);
+    }
+  });
+
+  it('slows the backswing for short clubs too', () => {
+    expect(BAG[clubIndex('pt')].tempo).toBeLessThan(BAG[clubIndex('dr')].tempo);
   });
 });
 

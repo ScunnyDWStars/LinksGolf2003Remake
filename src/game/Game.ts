@@ -449,6 +449,7 @@ export class Game {
         this.phase = 'swinging';
         this.meterView.setResult(null);
         this.meter.reset();
+        this.meter.tempo = this.club.tempo;
         this.meter.click();
         this.meterClock = performance.now();
         this.publishState();
