@@ -573,8 +573,19 @@ function buildObStakes(t: PlayableHole): THREE.InstancedMesh | null {
 function buildPin(t: PlayableHole): { pin: THREE.Group; flag: THREE.Mesh; flagBaseY: number } {
   const g = new THREE.Group();
   const y = t.heightAt(t.cup.x, t.cup.z);
-  // Cup: dark hole with a white liner ring.
-  const cup = new THREE.Mesh(new THREE.CircleGeometry(CUP_RADIUS, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#111' }));
+  // Cup: a hole that reads as deep (dark centre shading to the lit far wall), with a white liner ring.
+  const cc = document.createElement('canvas');
+  cc.width = cc.height = 64;
+  const cg = cc.getContext('2d')!;
+  const grd = cg.createRadialGradient(36, 26, 2, 32, 32, 32);
+  grd.addColorStop(0, '#050505');
+  grd.addColorStop(0.75, '#141414');
+  grd.addColorStop(1, '#3a3a36');
+  cg.fillStyle = grd;
+  cg.fillRect(0, 0, 64, 64);
+  const cupTex = new THREE.CanvasTexture(cc);
+  cupTex.colorSpace = THREE.SRGBColorSpace;
+  const cup = new THREE.Mesh(new THREE.CircleGeometry(CUP_RADIUS, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: cupTex }));
   cup.position.set(t.cup.x, y + 0.004, t.cup.z);
   g.add(cup);
   const liner = new THREE.Mesh(
@@ -584,13 +595,19 @@ function buildPin(t: PlayableHole): { pin: THREE.Group; flag: THREE.Mesh; flagBa
   liner.position.copy(cup.position);
   g.add(liner);
 
-  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.3, 8).translate(0, 1.15, 0), new THREE.MeshStandardMaterial({ color: '#f5f5f0' }));
+  const stick = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 2.3, 12).translate(0, 1.15, 0),
+    new THREE.MeshPhysicalMaterial({ color: '#f5f5f0', roughness: 0.3, clearcoat: 0.8 }),
+  );
   stick.position.set(t.cup.x, y, t.cup.z);
   stick.castShadow = true;
   g.add(stick);
 
   const flagGeo = new THREE.PlaneGeometry(0.62, 0.42, 12, 4).translate(0.31, 0, 0);
-  const flag = new THREE.Mesh(flagGeo, new THREE.MeshStandardMaterial({ color: '#d42a2a', side: THREE.DoubleSide }));
+  const flag = new THREE.Mesh(
+    flagGeo,
+    new THREE.MeshPhysicalMaterial({ color: '#d42a2a', side: THREE.DoubleSide, roughness: 0.75, sheen: 0.8, sheenColor: new THREE.Color('#ff8a7a'), sheenRoughness: 0.5 }),
+  );
   flag.position.set(t.cup.x, y + 2.05, t.cup.z);
   flag.castShadow = true;
   flag.userData.base = (flagGeo.attributes.position.array as Float32Array).slice();

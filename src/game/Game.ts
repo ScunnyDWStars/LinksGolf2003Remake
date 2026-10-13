@@ -13,6 +13,7 @@ import { CameraDirector } from '../render/Cameras';
 import { Golfer } from '../render/Golfer';
 import { Grass } from '../render/Grass';
 import { foliageUniforms } from '../render/Foliage';
+import { galleryUniforms } from '../render/Gallery';
 import { PuttGrid } from '../render/PuttGrid';
 import { FrameGovernor, lowerLevel, presetFor, resolveLevel, type DeviceInfo } from '../render/Quality';
 import type { GameScene } from '../render/Scene';
@@ -750,14 +751,14 @@ export class Game {
       this.recordHole();
       this.cams!.holed(t.cupPosition(), s.start);
       const d = this.strokes - this.round!.holes[this.holeIdx].par;
-      this.sfx.applause(this.strokes === 1 ? 1 : d <= -2 ? 0.95 : d === -1 ? 0.7 : d === 0 ? 0.35 : 0.12);
+      this.cheer(this.strokes === 1 ? 1 : d <= -2 ? 0.95 : d === -1 ? 0.7 : d === 0 ? 0.35 : 0.12);
       this.settleTimer = 2.8;
       this.afterSettle = () => this.holeComplete();
     } else {
       if (r.outcome === 'rest' && r.finalSurface !== 'water') {
         // Small cheer for a close approach.
         const left = Math.hypot(t.cup.x - res.nextPos.x, t.cup.z - res.nextPos.z);
-        if (!s.putt && left < 4) this.sfx.applause(0.4);
+        if (!s.putt && left < 4) this.cheer(0.4);
       }
       this.settleTimer = 1.8;
       this.afterSettle = () => {
@@ -896,6 +897,12 @@ export class Game {
     this.hud.setWind(windYaw - camYaw, mph < 0.5 ? '' : val, mph / 20);
   }
 
+  /** Crowd reaction: sound plus the gallery clapping. */
+  private cheer(intensity: number): void {
+    this.sfx.applause(intensity);
+    galleryUniforms.uClap.value = Math.max(galleryUniforms.uClap.value, 0.4 + intensity * 0.6);
+  }
+
   /** Create, resize or remove the grass to match the graphics preset. */
   private syncGrass(): void {
     const q = this.gs.quality;
@@ -1018,6 +1025,9 @@ export class Game {
 
     if (this.phase !== 'menu' && this.phase !== 'flyover') cams.update(dt);
     else cams.update(0);
+    // Depth of field for the cinematic shots: hole flyovers and the close-up of a holed ball.
+    const cine = cams.mode === 'flyover' || cams.mode === 'holed';
+    this.gs.setDof(cine, cine ? this.gs.camera.position.distanceTo(cams.lookTarget) : 30);
 
     const t = this.terrain;
     if (t) {
@@ -1028,6 +1038,8 @@ export class Game {
       }
       if (this.meshes) animateFlag(this.meshes.flag, this.time, this.wind.x, this.wind.z);
       this.grass?.update(this.time, this.gs.camera, this.wind.x, this.wind.z);
+      galleryUniforms.uTime.value = this.time;
+      galleryUniforms.uClap.value = Math.max(0, galleryUniforms.uClap.value - dt * 0.28);
       const ws = Math.min(1.2, this.wind.length() / 8) + 0.15;
       const wl = this.wind.length() || 1;
       foliageUniforms.uWind.value.set((this.wind.x / wl) * ws, (this.wind.z / wl) * ws);
