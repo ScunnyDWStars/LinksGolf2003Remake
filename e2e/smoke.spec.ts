@@ -13,7 +13,7 @@ test('tee off with the 3-click swing and finish a hole', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
-  await page.goto('/?test');
+  await page.goto('/?test&gfx=low');
   await page.waitForFunction(() => document.body.dataset.ready === '1');
   await expect(page.getByText('Greenside Classic')).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/01-menu.png` });

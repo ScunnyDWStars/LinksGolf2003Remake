@@ -14,7 +14,7 @@ function maskFor(t: PlayableHole, x: number, z: number): [height: number, golden
     case 'deepRough':
     case 'ob':
       if (t.inWoods(x, z)) return [0.12, 0.25, 0];
-      return links ? [0.3, 1, 0.04] : [0.2, 0.1, 0.18];
+      return links ? [0.26, 1, 0.04] : [0.2, 0.1, 0.18];
     default:
       return [0, 0, 0];
   }
@@ -137,7 +137,9 @@ export class Grass {
           vec2 world = uCenter + mod(aOffset.xy - uCenter + uRadius, span) - uRadius;
           vec4 mask = texture2D(tMask, (world - uOrigin + 0.5) / uGrid);
           float r = length(world - uCenter) / uRadius;
-          float h = mask.r * 0.5 * (0.35 + 0.95 * fract(aOffset.z * 7.31)) * (1.0 - smoothstep(0.7, 1.0, r));
+          // Clumps and bare patches rather than an even carpet.
+          float clump = 0.5 + 0.5 * sin(world.x * 0.83 + sin(world.y * 0.61) * 2.3) * sin(world.y * 0.97 + sin(world.x * 0.53) * 1.9);
+          float h = mask.r * 0.5 * (0.35 + 0.95 * fract(aOffset.z * 7.31)) * mix(1.0, 0.25 + 1.1 * clump, mask.g) * (1.0 - smoothstep(0.45, 1.0, r));
           float ang = aOffset.z * 6.2831;
           vec3 p = position;
           p = vec3(p.x * cos(ang) - p.z * sin(ang), p.y, p.x * sin(ang) + p.z * cos(ang));
@@ -152,7 +154,7 @@ export class Grass {
           // Colour: darker at the base, golden fescue, the odd flower head.
           float flower = step(1.0 - mask.b * 0.25, fract(aOffset.z * 91.7)) * step(0.97, aTip);
           vec3 green = mix(vec3(0.16, 0.30, 0.07), vec3(0.42, 0.55, 0.16), aTip);
-          vec3 gold = mix(vec3(0.20, 0.20, 0.08), vec3(0.55, 0.49, 0.24), aTip);
+          vec3 gold = mix(vec3(0.33, 0.31, 0.15), vec3(0.58, 0.52, 0.27), aTip);
           vGrass = mix(green, gold, mask.g * (0.6 + 0.4 * fract(aOffset.z * 13.1))) * (0.8 + 0.3 * fract(aOffset.z * 3.7));
           vGrass = mix(vGrass, vec3(0.95, 0.85, 0.25), flower);`,
         )

@@ -51,6 +51,22 @@ real ball physics, wind, and a putting grid. It needs no install and no plugins;
   gimmes inside 2 ft, and a pick-up at 10 strokes.
 - **Round types**: 18 holes, front 9, back 9, or a practice hole. Includes a classic scorecard (circles for
   birdies, boxes for bogeys) and saves your best scores.
+- **Current-generation graphics**, with the classic layout:
+  - physical sky with drifting clouds
+  - lighting from the sky
+  - cascaded shadows
+  - ambient occlusion, bloom, depth of field on flyovers, colour grading and anti-aliasing
+  - 3D grass that sways in the wind
+  - leaf-card trees
+  - water with reflections, sun glints and shore foam
+  - a jointed golfer with a real swing (hip and shoulder turn, wrist hinge, full finish)
+  - spectators who applaud good shots
+  - a broadcast-style shot tracer
+
+  Everything is generated in code, with no image files. **Options → Graphics** offers Auto, Low, Medium,
+  High and Ultra; Low is the original lighter look. Auto picks a preset for your device, and the game
+  steps down one level by itself if frames start to lag. Add `?gfx=low` (or `medium`, `high`, `ultra`) to
+  the URL to force one.
 - **Procedural audio**: club impacts, landings, splashes, the cup rattle, crowd applause, sea wind and birds.
 - Works with keyboard and mouse, and on touch screens.
 
@@ -112,7 +128,8 @@ src/
   swing/     clubs, swing meter + mouse swing, shot shaping / lie effects, power→distance calibration
   course/    shared hole interface, Cedar Ridge + Kestrel Dunes, authored and map-based terrain, mesh builder
   mapcourse/ BackyardGolf course format and the OpenStreetMap course baker
-  render/    scene, sky & water shaders, golfer, gallery, ball/trail, aim marker, putting grid, camera director
+  render/    scene (sky, IBL, cascaded shadows), post FX, quality presets, terrain/grass/foliage/water shaders,
+             golfer rig, gallery, ball & tracer, aim marker, putting grid, camera director
   game/      game controller (state machine), rules, round scoring, settings persistence
   ui/        HUD, hole map, swing meter view, scorecard, menus
   audio/     WebAudio sound synthesis
